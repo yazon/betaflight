@@ -93,6 +93,7 @@ typedef union gyroSoftFilter_u {
     biquadFilter_t gyroFilterLpfState[XYZ_AXIS_COUNT];
     pt1Filter_t gyroFilterPt1State[XYZ_AXIS_COUNT];
     firFilterDenoise_t gyroDenoiseState[XYZ_AXIS_COUNT];
+    lpfIIRFitler_t gyroFilterIirState[XYZ_AXIS_COUNT];
 } gyroSoftLpfFilter_t;
 
 typedef struct gyroSensor_s {
@@ -405,31 +406,30 @@ void gyroInitFilterLpf(gyroSensor_t *gyroSensor, uint8_t lpfHz)
     const uint32_t gyroFrequencyNyquist = 1000000 / 2 / gyro.targetLooptime;
 
     if (lpfHz && lpfHz <= gyroFrequencyNyquist) {  // Initialisation needs to happen once samplingrate is known
-        switch (gyroConfig()->gyro_soft_lpf_type) {
-        case FILTER_BIQUAD:
-            gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)biquadFilterApply;
-            for (int axis = 0; axis < 3; axis++) {
-                gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroFilterLpfState[axis];
-                biquadFilterInitLPF(&gyroSensor->softLpfFilter.gyroFilterLpfState[axis], lpfHz, gyro.targetLooptime);
-            }
-            break;
-        case FILTER_PT1:
-            gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)pt1FilterApply;
-            const float gyroDt = (float) gyro.targetLooptime * 0.000001f;
-            for (int axis = 0; axis < 3; axis++) {
-                gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroFilterPt1State[axis];
-                pt1FilterInit(&gyroSensor->softLpfFilter.gyroFilterPt1State[axis], lpfHz, gyroDt);
-            }
-            break;
-        default:
-            gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)firFilterDenoiseUpdate;
-            for (int axis = 0; axis < 3; axis++) {
-                gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroDenoiseState[axis];
-                firFilterDenoiseInit(&gyroSensor->softLpfFilter.gyroDenoiseState[axis], lpfHz, gyro.targetLooptime);
-            }
-            break;
+//        switch (gyroConfig()->gyro_soft_lpf_type) {
+//        case FILTER_BIQUAD:
+//            gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)biquadFilterApply;
+//            for (int axis = 0; axis < 3; axis++) {
+//                gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroFilterLpfState[axis];
+//                biquadFilterInitLPF(&gyroSensor->softLpfFilter.gyroFilterLpfState[axis], lpfHz, gyro.targetLooptime);
+//            }
+//            break;
+//        case FILTER_PT1:
+		gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)firFilterApplyMy;
+		// const float gyroDt = (float) gyro.targetLooptime * 0.000001f;
+		for (int axis = 0; axis < 3; axis++) {
+			gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroFilterIirState[axis];
+			iirFilterInit(&gyroSensor->softLpfFilter.gyroFilterIirState[axis], axis);
+		}
+//            break;
+//        default:
+//            gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)firFilterDenoiseUpdate;
+//            for (int axis = 0; axis < 3; axis++) {
+//                gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroDenoiseState[axis];
+//                firFilterDenoiseInit(&gyroSensor->softLpfFilter.gyroDenoiseState[axis], lpfHz, gyro.targetLooptime);
+//            }
+//            break;
         }
-    }
 }
 
 static uint16_t calculateNyquistAdjustedNotchHz(uint16_t notchHz, uint16_t notchCutoffHz)

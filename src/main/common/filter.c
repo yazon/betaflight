@@ -19,6 +19,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+//#include "platform.h"
+#include "arm_math.h"
 
 #include "common/filter.h"
 #include "common/maths.h"
@@ -28,6 +30,53 @@
 #define M_PI_FLOAT  3.14159265358979323846f
 #define BIQUAD_BANDWIDTH 1.9f     /* bandwidth in octaves */
 #define BIQUAD_Q 1.0f / sqrtf(2.0f)     /* quality factor - butterworth*/
+
+#if USE_STATIC_IIR_FILTER
+//#define A_LENGTH 		13
+#define B_LENGTH 		91
+
+/* a coefficients (numerator), a0 is 1, we skip it */
+//double aIirCoeffs[A_LENGTH] = {1.0, -10.9932247187354, 55.4329790485894, -169.536483253792, 350.265265970947,
+//							  -514.995208299233, 552.548751876674, -435.891944304471, 250.927570674114,
+//							  -102.799294531210, 28.4492510419751, -4.77532989250449, 0.367666387654882};
+//
+///* b coefficients (denominator) */
+//double bIirCoeffs[B_LENGTH] = {0.000431593183932006, -0.00398642651320452, 0.0162123852450434, -0.0373605256407417,
+//							  0.0509807835975414, -0.0346460500463756, -0.00851441217836203, 0.0465753359589142,
+//							  -0.0591101242679946, 0.0588348785639115, -0.0591101124459702, 0.0465753173287827,
+//							  -0.00851440706971594, -0.0346460223295452, 0.0509807326167808, -0.0373604808081356,
+//							  0.0162123625477188, -0.00398642013492689, 0.000431592407064935};
+float bFirCoeffs[B_LENGTH] = {
+		-2.613850484e-05,2.168760511e-05,7.498973719e-05,0.0001380539907,0.0002154018439,
+		  0.0003117166343,0.0004317650164,0.0005803143722,0.0007620477118,0.0009814773221,
+		   0.001242858358, 0.001550104353, 0.001906705322, 0.002315649996, 0.002779355273,
+		   0.003299599746, 0.003877468407, 0.004513305612, 0.005206675269, 0.005956338719,
+		   0.006760234945, 0.007615482435,  0.00851838477, 0.009464453906,  0.01044844463,
+		    0.01146439929,  0.01250570361,  0.01356515847,  0.01463505067,  0.01570724696,
+		    0.01677327789,  0.01782444865,  0.01885193959,  0.01984690502,  0.02080060355,
+		    0.02170448564,  0.02255031839,  0.02333028801,  0.02403709479,  0.02466405369,
+		    0.02520518005,  0.02565527335,    0.026009975,  0.02626583725,  0.02642036229,
+		    0.02647203952,  0.02642036229,  0.02626583725,    0.026009975,  0.02565527335,
+		    0.02520518005,  0.02466405369,  0.02403709479,  0.02333028801,  0.02255031839,
+		    0.02170448564,  0.02080060355,  0.01984690502,  0.01885193959,  0.01782444865,
+		    0.01677327789,  0.01570724696,  0.01463505067,  0.01356515847,  0.01250570361,
+		    0.01146439929,  0.01044844463, 0.009464453906,  0.00851838477, 0.007615482435,
+		   0.006760234945, 0.005956338719, 0.005206675269, 0.004513305612, 0.003877468407,
+		   0.003299599746, 0.002779355273, 0.002315649996, 0.001906705322, 0.001550104353,
+		   0.001242858358,0.0009814773221,0.0007620477118,0.0005803143722,0.0004317650164,
+		  0.0003117166343,0.0002154018439,0.0001380539907,7.498973719e-05,2.168760511e-05,
+		  -2.613850484e-05};
+
+//float firState[B_LENGTH+1];
+
+//float iirInputBuf[XYZ_AXIS_COUNT][B_LENGTH];
+//float iirOutputBuf[XYZ_AXIS_COUNT][A_LENGTH];
+
+#endif
+
+void arm_fir_init_f32(arm_fir_instance_f32 * S, uint16_t numTaps, float32_t * pCoeffs,float32_t * pState, uint32_t blockSize);
+void arm_fir_f32(const arm_fir_instance_f32 * S, float32_t * pSrc,float32_t * pDst, uint32_t blockSize);
+
 
 // NULL filter
 
@@ -315,3 +364,92 @@ float firFilterDenoiseUpdate(firFilterDenoise_t *filter, float input)
         return filter->movingSum / ++filter->filledCount + 1;
     }
 }
+
+#if USE_STATIC_IIR_FILTER
+
+void iirFilterInit(lpfIIRFitler_t *filter, axis_e axis)
+{
+	uint8_t i;
+	/* We don't support other sampling frequencies yet. */
+	filter->fs = IIR_FS_8KHZ;
+//	filter->aLength = A_LENGTH;
+	filter->bLength = B_LENGTH;
+	//filter->aCoeffs = (float *) aIirCoeffs;
+	//filter->bCoeffs = (float *) bIirCoeffs;
+	//filter->inputBuf = (float *) iirInputBuf[axis % XYZ_AXIS_COUNT];
+	//filter->outputBuf = (float *) iirOutputBuf[axis % XYZ_AXIS_COUNT];
+
+	for (i = 0; i < B_LENGTH; i++) {
+		filter->firState[i] = 0.0;
+	}
+
+	axis = axis;
+
+	arm_fir_init_f32((arm_fir_instance_f32 *)&filter->fir_instance, B_LENGTH, (float32_t *)&bFirCoeffs[0], (float32_t *)&filter->firState[0], 1);
+
+//	for (i = 0; i < A_LENGTH; i++) {
+//		filter->outputBuf[i] = 0.0;
+//	}
+}
+
+//float iirFilterApply(lpfIIRFitler_t *filter, float input)
+//{
+////	uint8_t i;
+//	float result = 0.0;
+//
+//    /* Write new data to buffer */
+////	filter->inputBuf[0] = (double) input;
+////
+////	/* Calculate new ouput */
+////	for (i = 0; i < B_LENGTH; i++) {
+////		result += (filter->inputBuf[i] * bIirCoeffs[i]);
+////	}
+////
+////	for (i = 1; i < A_LENGTH; i++) {
+////		result -= (filter->outputBuf[i-1] * aIirCoeffs[i]);
+////	}
+////
+////	/* Move input and output samples by 1 */
+////	for (i = B_LENGTH-1; i > 0; i--) {
+////		filter->inputBuf[i] = filter->inputBuf[i-1];
+////	}
+////
+////	for (i = A_LENGTH-1; i > 0; i--) {
+////		filter->outputBuf[i] = filter->outputBuf[i-1];
+////	}
+////
+////	/* Store result */
+////	filter->outputBuf[0] = result;
+//	//filter->state = result;
+//
+//	return result;
+//}
+
+
+float firFilterApplyMy(lpfIIRFitler_t *filter, float input)
+{
+//	uint8_t i;
+	float result = 0.0;
+//
+//    /* Write new data to buffer */
+//	filter->inputBuf[0] = input;
+//
+//	/* Calculate new ouput */
+//	for (i = 0; i < B_LENGTH; i++) {
+//		result += (filter->inputBuf[i] * bFirCoeffs[i]);
+//	}
+//
+//	/* Move input and output samples by 1 */
+//	for (i = B_LENGTH-1; i > 0; i--) {
+//		filter->inputBuf[i] = filter->inputBuf[i-1];
+//	}
+//
+//	/* Return result */
+//	return (float) result;
+
+	arm_fir_f32((arm_fir_instance_f32 *)&filter->fir_instance, &input, &result, 1);
+
+	return result;
+}
+
+#endif

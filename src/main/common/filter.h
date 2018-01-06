@@ -15,7 +15,19 @@
  * along with Cleanflight.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdint.h>
+#include <math.h>
+
 #pragma once
+
+#include "common/axis.h"
+
+typedef struct
+{
+uint16_t numTaps;     /**< number of filter coefficients in the filter. */
+float *pState;    /**< points to the state variable array. The array is of length numTaps+blockSize-1. */
+float *pCoeffs;   /**< points to the coefficient array. The array is of length numTaps. */
+} arm_fir_instance_f32_c;
 
 // Don't use it on F1 and F3 to lower RAM usage
 // FIR/Denoise filter can be cleaned up in the future as it is rarely used and used to be experimental
@@ -23,6 +35,35 @@
 #define MAX_FIR_DENOISE_WINDOW_SIZE 1
 #else
 #define MAX_FIR_DENOISE_WINDOW_SIZE 120
+#endif
+
+#define USE_STATIC_IIR_FILTER 1
+
+#if USE_STATIC_IIR_FILTER
+
+typedef enum {
+    IIR_FS_4KHZ = 0,
+    IIR_FS_8KHZ,
+    IIR_FS_16KHZ,
+    IIR_FS_32KHZ
+} iirFsampling_e;
+
+typedef struct lpfIIRFitler_s {
+	float state;
+	float *aCoeffs;
+	float *bCoeffs;
+	float firState[91];
+	arm_fir_instance_f32_c fir_instance;
+//	double outputBuf[13];
+	uint8_t aLength;
+	uint8_t bLength;
+	iirFsampling_e fs;
+} lpfIIRFitler_t;
+
+void iirFilterInit(lpfIIRFitler_t *filter, axis_e axis);
+float firFilterApplyMy(lpfIIRFitler_t *filter, float input);
+//float iirFilterApply(lpfIIRFitler_t *filter, float input);
+
 #endif
 
 typedef struct pt1Filter_s {
