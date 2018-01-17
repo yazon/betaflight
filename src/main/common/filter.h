@@ -17,17 +17,12 @@
 
 #include <stdint.h>
 #include <math.h>
+#include "arm_math.h"
 
 #pragma once
 
 #include "common/axis.h"
-
-typedef struct
-{
-uint16_t numTaps;     /**< number of filter coefficients in the filter. */
-float *pState;    /**< points to the state variable array. The array is of length numTaps+blockSize-1. */
-float *pCoeffs;   /**< points to the coefficient array. The array is of length numTaps. */
-} arm_fir_instance_f32_c;
+#include "common/hpf_coeffs.h"
 
 // Don't use it on F1 and F3 to lower RAM usage
 // FIR/Denoise filter can be cleaned up in the future as it is rarely used and used to be experimental
@@ -37,32 +32,68 @@ float *pCoeffs;   /**< points to the coefficient array. The array is of length n
 #define MAX_FIR_DENOISE_WINDOW_SIZE 120
 #endif
 
-#define USE_STATIC_IIR_FILTER 1
+#if (defined(STM32F1) || defined(STM32F3))
+#define USE_ADAPTIVE_FILTER 0
+#else
+#define USE_ADAPTIVE_FILTER 1
+#endif
 
-#if USE_STATIC_IIR_FILTER
+#if USE_ADAPTIVE_FILTER
+
+#define ADATIVE_FILTER_BS					(1)
+#define ADATIVE_FILTER_STEP_SIZE			(0.04)
+
+#define ADAPTIVE_FILTER_FS_1KHZ_VALUE		(1000)
+#define ADAPTIVE_FILTER_FS_2KHZ_VALUE		(2000)
+#define ADAPTIVE_FILTER_FS_4KHZ_VALUE		(4000)
+#define ADAPTIVE_FILTER_FS_8KHZ_VALUE		(8000)
+#define ADAPTIVE_FILTER_FS_16KHZ_VALUE		(16000)
+
+/* Filter delay is 2.5ms */
+#define ADAPTIVE_FILTER_FS_1KHZ_TAPS_SIZE	(6)
+#define ADAPTIVE_FILTER_FS_2KHZ_TAPS_SIZE	(11)
+#define ADAPTIVE_FILTER_FS_4KHZ_TAPS_SIZE	(21)
+#define ADAPTIVE_FILTER_FS_8KHZ_TAPS_SIZE	(41)
+#define ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE	(81)
+
+/* Filter delay is 3ms */
+#define HPF_FILTER_FS_1KHZ_TAPS_SIZE 		(HPF_COEFFS_1KHZ_LENGTH)
+#define HPF_FILTER_FS_2KHZ_TAPS_SIZE 		(HPF_COEFFS_2KHZ_LENGTH)
+#define HPF_FILTER_FS_4KHZ_TAPS_SIZE 		(HPF_COEFFS_4KHZ_LENGTH)
+#define HPF_FILTER_FS_8KHZ_TAPS_SIZE 		(HPF_COEFFS_8KHZ_LENGTH)
+#define HPF_FILTER_FS_16KHZ_TAPS_SIZE 		(HPF_COEFFS_16KHZ_LENGTH)
 
 typedef enum {
-    IIR_FS_4KHZ = 0,
-    IIR_FS_8KHZ,
-    IIR_FS_16KHZ,
-    IIR_FS_32KHZ
-} iirFsampling_e;
+	ADAPTIVE_FILTER_FS_1KHZ = 0,
+	ADAPTIVE_FILTER_FS_2KHZ,
+    ADAPTIVE_FILTER_FS_4KHZ,
+    ADAPTIVE_FILTER_FS_8KHZ,
+    ADAPTIVE_FILTER_FS_16KHZ,
+    /* ADAPTIVE_FILTER_FS_32KHZ Not supported yet. */
+    ADAPTIVE_FILTER__MAX
+} adaptiveFilterFs_e;
 
-typedef struct lpfIIRFitler_s {
+typedef struct filterFsToTaps_s {
+	uint16_t fs;
+	uint16_t taps;
+} filterFsToTaps_t;
+
+typedef struct hpfNoiseFitler_s {
+	float *hpfFirTaps; /* Pointer to HPF FIR filter taps to get noise signal */
+	float hpfFirState[HPF_FILTER_FS_16KHZ_TAPS_SIZE]; /* HPF FIR filter state */
+} hpfNoiseFitler_t;
+
+typedef struct adaptiveFilter_s {
+	uint8_t axis;
 	float state;
-	float *aCoeffs;
-	float *bCoeffs;
-	float firState[91];
-	arm_fir_instance_f32_c fir_instance;
-//	double outputBuf[13];
-	uint8_t aLength;
-	uint8_t bLength;
-	iirFsampling_e fs;
-} lpfIIRFitler_t;
-
-void iirFilterInit(lpfIIRFitler_t *filter, axis_e axis);
-float firFilterApplyMy(lpfIIRFitler_t *filter, float input);
-//float iirFilterApply(lpfIIRFitler_t *filter, float input);
+	float nlmsFirTaps[ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE];
+	float nlmsFirState[ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE];
+	hpfNoiseFitler_t noiseFilter;
+	filterFsToTaps_t nlmsFsTaps;
+	filterFsToTaps_t hpfFsTaps;
+	arm_lms_norm_instance_f32 lms_instance;
+	arm_fir_instance_f32 hpf_instance;
+} adaptiveFilter_t;
 
 #endif
 
@@ -149,3 +180,10 @@ float firFilterLastInput(const firFilter_t *filter);
 
 void firFilterDenoiseInit(firFilterDenoise_t *filter, uint8_t gyroSoftLpfHz, uint16_t targetLooptime);
 float firFilterDenoiseUpdate(firFilterDenoise_t *filter, float input);
+
+#if USE_ADAPTIVE_FILTER
+
+void adaptiveFilterInit(adaptiveFilter_t *filter, uint32_t refreshRate, uint8_t axis);
+float adaptiveFilterApply(adaptiveFilter_t *filter, float input);
+
+#endif

@@ -340,6 +340,9 @@ SRC += $(DSP_LIB)/Source/TransformFunctions/arm_cfft_radix8_f32.c
 SRC += $(DSP_LIB)/Source/CommonTables/arm_common_tables.c
 SRC += $(DSP_LIB)/Source/FilteringFunctions/arm_fir_init_f32.c
 SRC += $(DSP_LIB)/Source/FilteringFunctions/arm_fir_f32.c
+SRC += $(DSP_LIB)/Source/FilteringFunctions/arm_lms_norm_init_f32.c
+SRC += $(DSP_LIB)/Source/FilteringFunctions/arm_lms_norm_f32.c
+
 
 SRC += $(DSP_LIB)/Source/ComplexMathFunctions/arm_cmplx_mag_f32.c
 SRC += $(DSP_LIB)/Source/StatisticsFunctions/arm_max_f32.c
