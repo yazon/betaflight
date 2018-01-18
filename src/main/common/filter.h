@@ -62,6 +62,7 @@
 #define HPF_FILTER_FS_4KHZ_TAPS_SIZE 		(HPF_COEFFS_4KHZ_LENGTH)
 #define HPF_FILTER_FS_8KHZ_TAPS_SIZE 		(HPF_COEFFS_8KHZ_LENGTH)
 #define HPF_FILTER_FS_16KHZ_TAPS_SIZE 		(HPF_COEFFS_16KHZ_LENGTH)
+#define HPF_FILTER_FS_32KHZ_TAPS_SIZE 		(HPF_COEFFS_32KHZ_LENGTH)
 
 typedef enum {
 	ADAPTIVE_FILTER_FS_1KHZ = 0,
@@ -69,7 +70,7 @@ typedef enum {
     ADAPTIVE_FILTER_FS_4KHZ,
     ADAPTIVE_FILTER_FS_8KHZ,
     ADAPTIVE_FILTER_FS_16KHZ,
-    /* ADAPTIVE_FILTER_FS_32KHZ Not supported yet. */
+    ADAPTIVE_FILTER_FS_32KHZ,
     ADAPTIVE_FILTER__MAX
 } adaptiveFilterFs_e;
 
@@ -80,7 +81,7 @@ typedef struct filterFsToTaps_s {
 
 typedef struct hpfNoiseFitler_s {
 	float *hpfFirTaps; /* Pointer to HPF FIR filter taps to get noise signal */
-	float hpfFirState[HPF_FILTER_FS_16KHZ_TAPS_SIZE]; /* HPF FIR filter state */
+	float hpfFirState[HPF_FILTER_FS_32KHZ_TAPS_SIZE]; /* HPF FIR filter state */
 } hpfNoiseFitler_t;
 
 typedef struct adaptiveFilter_s {
