@@ -40,29 +40,37 @@
 
 #if USE_ADAPTIVE_FILTER
 
-#define ADATIVE_FILTER_BS					(1)
-#define ADATIVE_FILTER_STEP_SIZE			(0.04)
+#define ADATIVE_FILTER_BS						(1)
+#define ADATIVE_FILTER_STEP_SIZE				(0.04)
 
-#define ADAPTIVE_FILTER_FS_1KHZ_VALUE		(1000)
-#define ADAPTIVE_FILTER_FS_2KHZ_VALUE		(2000)
-#define ADAPTIVE_FILTER_FS_4KHZ_VALUE		(4000)
-#define ADAPTIVE_FILTER_FS_8KHZ_VALUE		(8000)
-#define ADAPTIVE_FILTER_FS_16KHZ_VALUE		(16000)
+#define ADAPTIVE_FILTER_FS_1KHZ_VALUE			(1000)
+#define ADAPTIVE_FILTER_FS_2KHZ_VALUE			(2000)
+#define ADAPTIVE_FILTER_FS_4KHZ_VALUE			(4000)
+#define ADAPTIVE_FILTER_FS_8KHZ_VALUE			(8000)
+#define ADAPTIVE_FILTER_FS_16KHZ_VALUE			(16000)
 
 /* Filter delay is 2.5ms */
-#define ADAPTIVE_FILTER_FS_1KHZ_TAPS_SIZE	(6)
-#define ADAPTIVE_FILTER_FS_2KHZ_TAPS_SIZE	(11)
-#define ADAPTIVE_FILTER_FS_4KHZ_TAPS_SIZE	(21)
-#define ADAPTIVE_FILTER_FS_8KHZ_TAPS_SIZE	(41)
-#define ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE	(81)
+#define ADAPTIVE_FILTER_FS_1KHZ_TAPS_SIZE		(6)
+#define ADAPTIVE_FILTER_FS_2KHZ_TAPS_SIZE		(11)
+#define ADAPTIVE_FILTER_FS_4KHZ_TAPS_SIZE		(21)
+#define ADAPTIVE_FILTER_FS_8KHZ_TAPS_SIZE		(41)
+#define ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE		(81)
 
-/* Filter delay is 3ms */
-#define HPF_FILTER_FS_1KHZ_TAPS_SIZE 		(HPF_COEFFS_1KHZ_LENGTH)
-#define HPF_FILTER_FS_2KHZ_TAPS_SIZE 		(HPF_COEFFS_2KHZ_LENGTH)
-#define HPF_FILTER_FS_4KHZ_TAPS_SIZE 		(HPF_COEFFS_4KHZ_LENGTH)
-#define HPF_FILTER_FS_8KHZ_TAPS_SIZE 		(HPF_COEFFS_8KHZ_LENGTH)
-#define HPF_FILTER_FS_16KHZ_TAPS_SIZE 		(HPF_COEFFS_16KHZ_LENGTH)
-#define HPF_FILTER_FS_32KHZ_TAPS_SIZE 		(HPF_COEFFS_32KHZ_LENGTH)
+/* Filter delay is 1.5ms */
+#define LPF_GYRO_FILTER_FS_1KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_1KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_2KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_2KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_4KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_4KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_8KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_8KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_16KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_16KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_32KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_32KHZ_LENGTH)
+
+/* Filter delay is 1ms */
+#define LPF_PID_FILTER_FS_1KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_1KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_2KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_2KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_4KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_4KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_8KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_8KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_16KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_16KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_32KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_32KHZ_LENGTH)
 
 typedef enum {
 	ADAPTIVE_FILTER_FS_1KHZ = 0,
@@ -79,21 +87,21 @@ typedef struct filterFsToTaps_s {
 	uint16_t taps;
 } filterFsToTaps_t;
 
-typedef struct hpfNoiseFitler_s {
-	float *hpfFirTaps; /* Pointer to HPF FIR filter taps to get noise signal */
-	float hpfFirState[HPF_FILTER_FS_32KHZ_TAPS_SIZE]; /* HPF FIR filter state */
-} hpfNoiseFitler_t;
+typedef struct lpfNoiseFitler_s {
+	float *lpfFirTaps; /* Pointer to lpf FIR filter taps to get noise signal */
+	float lpfFirState[LPF_GYRO_FILTER_FS_32KHZ_TAPS_SIZE]; /* HPF FIR filter state */
+} lpfNoiseFitler_t;
 
 typedef struct adaptiveFilter_s {
 	uint8_t axis;
 	float state;
-	float nlmsFirTaps[ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE];
-	float nlmsFirState[ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE];
-	hpfNoiseFitler_t noiseFilter;
-	filterFsToTaps_t nlmsFsTaps;
-	filterFsToTaps_t hpfFsTaps;
-	arm_lms_norm_instance_f32 lms_instance;
-	arm_fir_instance_f32 hpf_instance;
+	//float nlmsFirTaps[ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE];
+	//float nlmsFirState[ADAPTIVE_FILTER_FS_16KHZ_TAPS_SIZE];
+	lpfNoiseFitler_t noiseFilter;
+	//filterFsToTaps_t nlmsFsTaps;
+	filterFsToTaps_t lpfFsTaps;
+	//arm_lms_norm_instance_f32 lms_instance;
+	arm_fir_instance_f32 lpf_instance;
 } adaptiveFilter_t;
 
 #endif
@@ -184,7 +192,7 @@ float firFilterDenoiseUpdate(firFilterDenoise_t *filter, float input);
 
 #if USE_ADAPTIVE_FILTER
 
-void adaptiveFilterInit(adaptiveFilter_t *filter, uint32_t refreshRate, uint8_t axis);
+void adaptiveFilterInit(adaptiveFilter_t *filter, uint32_t refreshRate, uint8_t axis, uint8_t pidFilter);
 float adaptiveFilterApply(adaptiveFilter_t *filter, float input);
 
 #endif

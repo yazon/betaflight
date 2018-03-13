@@ -419,7 +419,7 @@ void gyroInitFilterLpf(gyroSensor_t *gyroSensor, uint8_t lpfHz)
 		// const float gyroDt = (float) gyro.targetLooptime * 0.000001f;
 		for (int axis = 0; axis < 3; axis++) {
 			gyroSensor->softLpfFilterPtr[axis] = &gyroSensor->softLpfFilter.gyroFilterAdaptiveState[axis];
-			adaptiveFilterInit(&gyroSensor->softLpfFilter.gyroFilterAdaptiveState[axis], gyro.targetLooptime, axis);
+			adaptiveFilterInit(&gyroSensor->softLpfFilter.gyroFilterAdaptiveState[axis], gyro.targetLooptime, axis, 0);
 		}
 //            break;
 //        default:

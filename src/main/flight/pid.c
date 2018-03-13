@@ -168,6 +168,7 @@ typedef union dtermFilterLpf_u {
     pt1Filter_t pt1Filter[2];
     biquadFilter_t biquadFilter[2];
     firFilterDenoise_t denoisingFilter[2];
+    adaptiveFilter_t pidFirFilter[2];
 } dtermFilterLpf_t;
 
 void pidInitFilters(const pidProfile_t *pidProfile)
@@ -230,23 +231,28 @@ void pidInitFilters(const pidProfile_t *pidProfile)
             }
             break;
         case FILTER_FIR:
-            dtermLpfApplyFn = (filterApplyFnPtr)firFilterDenoiseUpdate;
+            dtermLpfApplyFn = (filterApplyFnPtr)adaptiveFilterApply;
             for (int axis = FD_ROLL; axis <= FD_PITCH; axis++) {
-                dtermFilterLpf[axis] = &dtermFilterLpfUnion.denoisingFilter[axis];
-                firFilterDenoiseInit(dtermFilterLpf[axis], pidProfile->dterm_lpf_hz, targetPidLooptime);
+                // dtermFilterLpf[axis] = &dtermFilterLpfUnion.denoisingFilter[axis];
+                // firFilterDenoiseInit(dtermFilterLpf[axis], pidProfile->dterm_lpf_hz, targetPidLooptime);
+                dtermFilterLpf[axis] = &dtermFilterLpfUnion.pidFirFilter[axis];
+    			adaptiveFilterInit(dtermFilterLpf[axis], targetPidLooptime, axis, 1);
             }
             break;
         }
     }
 
-    static pt1Filter_t pt1FilterYaw;
+    static adaptiveFilter_t adaptiveFilterYaw;
     if (pidProfile->yaw_lpf_hz == 0 || pidProfile->yaw_lpf_hz > pidFrequencyNyquist) {
         ptermYawFilterApplyFn = nullFilterApply;
     } else {
-        ptermYawFilterApplyFn = (filterApplyFnPtr)pt1FilterApply;
-        ptermYawFilter = &pt1FilterYaw;
-        pt1FilterInit(ptermYawFilter, pidProfile->yaw_lpf_hz, dT);
+		ptermYawFilterApplyFn = (filterApplyFnPtr)adaptiveFilterApply;
+		ptermYawFilter = &adaptiveFilterYaw;
+		adaptiveFilterInit(ptermYawFilter, targetPidLooptime, FD_YAW, 1);
     }
+
+
+
 }
 
 static float Kp[3], Ki[3], Kd[3];
