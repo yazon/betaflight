@@ -33,9 +33,11 @@
 #endif
 
 #ifdef LUXV2_RACE
-#define BEEPER                  PB9
+#define USE_BEEPER
+#define BEEPER_PIN              PB9
 #else
-#define BEEPER                  PB13
+#define USE_BEEPER
+#define BEEPER_PIN              PB13
 #endif
 #define BEEPER_INVERTED
 
@@ -82,7 +84,6 @@
 
 // Note, this is the same DMA channel as UART1_RX. Luckily we don't use DMA for USART Rx.
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Channel5
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA1_FLAG_TC5
 #endif
 
 #define MPU6000_CS_PIN          SPI1_NSS_PIN

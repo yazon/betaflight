@@ -21,7 +21,8 @@
 
 #define LED0_PIN                PB5
 
-#define BEEPER                  PC14
+#define USE_BEEPER
+#define BEEPER_PIN              PC14
 
 #define USE_GYRO
 #define USE_GYRO_MPU6050
@@ -81,7 +82,6 @@
 #define SDCARD_SPI_FULL_SPEED_CLOCK_DIVIDER     2
 
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Channel5
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA1_FLAG_TC5
 
 #define USE_ADC
 #define ADC_INSTANCE            ADC1
@@ -102,7 +102,7 @@
 
 #define USE_RX_FRSKY_SPI_D
 #define USE_RX_FRSKY_SPI_X
-#define DEFAULT_RX_FEATURE      FEATURE_RX_SPI	
+#define DEFAULT_RX_FEATURE      FEATURE_RX_SPI
 #define RX_SPI_DEFAULT_PROTOCOL RX_SPI_FRSKY_X
 #define USE_RX_FRSKY_SPI_TELEMETRY
 

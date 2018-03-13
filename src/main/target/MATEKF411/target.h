@@ -23,7 +23,8 @@
 #define LED0_PIN                PC13
 #define LED1_PIN                PC14
 
-#define BEEPER                  PB2
+#define USE_BEEPER
+#define BEEPER_PIN              PB2
 #define BEEPER_INVERTED
 
 // *************** Gyro & ACC **********************
@@ -31,8 +32,8 @@
 #define USE_SPI_DEVICE_1
 
 #define SPI1_SCK_PIN            PA5
-#define SPI1_MISO_PIN   	    PA6
-#define SPI1_MOSI_PIN   	    PA7
+#define SPI1_MISO_PIN           PA6
+#define SPI1_MOSI_PIN           PA7
 
 #define MPU6000_CS_PIN          PA4
 #define MPU6000_SPI_INSTANCE    SPI1
@@ -95,10 +96,9 @@
 // *************** OSD *****************************
 #define USE_SPI_DEVICE_2
 #define SPI2_SCK_PIN            PB13
-#define SPI2_MISO_PIN   	    PB14
-#define SPI2_MOSI_PIN   	    PB15
+#define SPI2_MISO_PIN           PB14
+#define SPI2_MOSI_PIN           PB15
 
-#define USE_OSD
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI2
 #define MAX7456_SPI_CS_PIN      PB12

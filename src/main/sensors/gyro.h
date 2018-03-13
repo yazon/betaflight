@@ -19,7 +19,7 @@
 
 #include "common/axis.h"
 #include "common/time.h"
-#include "config/parameter_group.h"
+#include "pg/pg.h"
 #include "drivers/bus.h"
 #include "drivers/sensor.h"
 
@@ -49,6 +49,16 @@ typedef struct gyro_s {
 
 extern gyro_t gyro;
 
+typedef enum {
+    GYRO_OVERFLOW_CHECK_NONE = 0,
+    GYRO_OVERFLOW_CHECK_YAW,
+    GYRO_OVERFLOW_CHECK_ALL_AXES
+} gyroOverflowCheck_e;
+
+#define GYRO_CONFIG_USE_GYRO_1      0
+#define GYRO_CONFIG_USE_GYRO_2      1
+#define GYRO_CONFIG_USE_GYRO_BOTH   2
+
 typedef struct gyroConfig_s {
     sensor_align_e gyro_align;              // gyro alignment
     uint8_t  gyroMovementCalibrationThreshold; // people keep forgetting that moving model while init results in wrong gyro offsets. and then they never reset gyro. so this is now on by default.
@@ -59,10 +69,16 @@ typedef struct gyroConfig_s {
     bool     gyro_high_fsr;
     bool     gyro_use_32khz;
     uint8_t  gyro_to_use;
+    uint16_t gyro_soft_lpf_hz_2;
     uint16_t gyro_soft_notch_hz_1;
     uint16_t gyro_soft_notch_cutoff_1;
     uint16_t gyro_soft_notch_hz_2;
     uint16_t gyro_soft_notch_cutoff_2;
+    gyroOverflowCheck_e checkOverflow;
+    uint16_t gyro_filter_q;
+    uint16_t gyro_filter_r;
+    uint16_t gyro_filter_p;
+    int16_t  gyro_offset_yaw;
 } gyroConfig_t;
 
 PG_DECLARE(gyroConfig_t, gyroConfig);
@@ -83,3 +99,5 @@ bool isGyroCalibrationComplete(void);
 void gyroReadTemperature(void);
 int16_t gyroGetTemperature(void);
 int16_t gyroRateDps(int axis);
+bool gyroOverflowDetected(void);
+uint16_t gyroAbsRateDps(int axis);

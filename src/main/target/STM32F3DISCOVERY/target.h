@@ -31,7 +31,7 @@
 
 #define CONFIG_FASTLOOP_PREFERRED_ACC ACC_NONE
 
-#undef USE_TELEMETRY_JETIEXBUS // ROM SAVING
+#undef USE_OSD // ROM SAVING
 
 #define CURRENT_TARGET_CPU_VOLTAGE 3.0
 
@@ -40,7 +40,8 @@
 #define LED1_PIN                PE10 // Orange LEDs - PE10/PE14
 #define LED1_INVERTED
 
-#define BEEPER                  PD12
+#define USE_BEEPER
+#define BEEPER_PIN              PD12
 #define BEEPER_PWM_HZ           2000  // Beeper PWM frequency in Hz
 
 #define USE_SPI
@@ -128,12 +129,9 @@
 #define USE_BARO_BMP280
 #define USE_BARO_MS5611
 
-//#define USE_OSD
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI2
 #define MAX7456_SPI_CS_PIN      SPI2_NSS_PIN
-
-//#define USE_CMS
 
 //#define USE_SDCARD
 //
@@ -146,7 +144,6 @@
 //
 //// Note, this is the same DMA channel as UART1_RX. Luckily we don't use DMA for USART Rx.
 //#define SDCARD_DMA_CHANNEL_TX               DMA1_Channel5
-//#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA1_FLAG_TC5
 
 // Performance logging for SD card operations:
 // #define AFATFS_USE_INTROSPECTIVE_LOGGING
@@ -156,6 +153,7 @@
 #define USE_MAG_AK8963
 #define USE_MAG_AK8975
 #define USE_MAG_HMC5883
+#define USE_MAG_QMC5883
 
 #define USE_VCP
 #define USE_UART1
@@ -194,9 +192,10 @@
 
 #define USE_ESC_SENSOR
 
-#define USE_SONAR
-#define SONAR_TRIGGER_PIN       PB0
-#define SONAR_ECHO_PIN          PB1
+#define USE_RANGEFINDER
+#define USE_RANGEFINDER_HCSR04
+#define RANGEFINDER_HCSR04_TRIGGER_PIN       PB0
+#define RANGEFINDER_HCSR04_ECHO_PIN          PB1
 
 #define USE_SERIAL_4WAY_BLHELI_INTERFACE
 

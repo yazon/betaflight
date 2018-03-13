@@ -22,11 +22,14 @@
 
 #ifdef USE_FLASH_M25P16
 
-#include "flash.h"
-#include "flash_m25p16.h"
 #include "drivers/bus_spi.h"
+#include "drivers/flash.h"
 #include "drivers/io.h"
 #include "drivers/time.h"
+
+#include "pg/flash.h"
+
+#include "flash_m25p16.h"
 
 #define M25P16_INSTRUCTION_RDID             0x9F
 #define M25P16_INSTRUCTION_READ_BYTES       0x03
@@ -54,6 +57,7 @@
 #define JEDEC_ID_WINBOND_W25Q64        0xEF4017
 #define JEDEC_ID_WINBOND_W25Q128       0xEF4018
 #define JEDEC_ID_WINBOND_W25Q256       0xEF4019
+#define JEDEC_ID_CYPRESS_S25FL128L     0x016018
 
 static busDevice_t busInstance;
 static busDevice_t *bus;
@@ -192,6 +196,7 @@ static bool m25p16_readIdentification(void)
         break;
     case JEDEC_ID_MICRON_N25Q128:
     case JEDEC_ID_WINBOND_W25Q128:
+    case JEDEC_ID_CYPRESS_S25FL128L:
         geometry.sectors = 256;
         geometry.pagesPerSector = 256;
         break;
@@ -229,6 +234,7 @@ static bool m25p16_readIdentification(void)
  * Attempts to detect a connected m25p16. If found, true is returned and device capacity can be fetched with
  * m25p16_getGeometry().
  */
+
 bool m25p16_init(const flashConfig_t *flashConfig)
 {
     /*

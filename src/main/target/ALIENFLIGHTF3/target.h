@@ -19,6 +19,7 @@
 
 #define TARGET_BOARD_IDENTIFIER "AFF3" // AlienFlight F3.
 #define USE_TARGET_CONFIG
+#define TARGET_BUS_INIT
 #define REMAP_TIM17_DMA
 
 #define CONFIG_FASTLOOP_PREFERRED_ACC ACC_DEFAULT
@@ -35,7 +36,8 @@
 #define LED0_A                  PB8
 #define LED1_A                  PB9
 
-#define BEEPER                  PA5
+#define USE_BEEPER
+#define BEEPER_PIN              PA5
 
 #define USE_EXTI
 //#define DEBUG_MPU_DATA_READY_INTERRUPT
@@ -111,9 +113,6 @@
 #define ADC_INSTANCE            ADC2
 #define VBAT_ADC_PIN            PA4
 #define VBAT_SCALE_DEFAULT      20
-
-// LED strip configuration.
-#define USE_LED_STRIP
 
 #define BINDPLUG_PIN            PB12
 

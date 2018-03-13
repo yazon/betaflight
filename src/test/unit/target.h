@@ -23,7 +23,7 @@
 #define USE_CMS
 #define CMS_MAX_DEVICE 4
 #define USE_FAKE_GYRO
-#define BEEPER
+#define USE_BEEPER
 #define USE_BLACKBOX
 #define USE_MAG
 #define USE_BARO
@@ -41,7 +41,7 @@
 #define USE_SERIALRX_XBUS       // JR
 #define USE_TELEMETRY
 #define USE_TELEMETRY_CRSF
-#define USE_TELEMETRY_FRSKY
+#define USE_TELEMETRY_FRSKY_HUB
 #define USE_TELEMETRY_HOTT
 #define USE_TELEMETRY_IBUS
 #define USE_TELEMETRY_JETIEXBUS

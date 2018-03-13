@@ -49,8 +49,8 @@
 
 // For rcData, stopAllMotors, stopPwmAllMotors
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 // For 'ARM' related
 #include "fc/config.h"
@@ -71,7 +71,7 @@
 #define CMS_MAX_DEVICE 4
 #endif
 
-static displayPort_t *pCurrentDisplay;
+displayPort_t *pCurrentDisplay;
 
 static displayPort_t *cmsDisplayPorts[CMS_MAX_DEVICE];
 static int cmsDeviceCount;

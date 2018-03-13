@@ -31,8 +31,8 @@
 #include "common/maths.h"
 
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 #include "cms/cms.h"
 
@@ -79,11 +79,10 @@ PG_RESET_TEMPLATE(rcControlsConfig_t, rcControlsConfig,
     .yaw_control_reversed = false,
 );
 
-PG_REGISTER_WITH_RESET_TEMPLATE(armingConfig_t, armingConfig, PG_ARMING_CONFIG, 0);
+PG_REGISTER_WITH_RESET_TEMPLATE(armingConfig_t, armingConfig, PG_ARMING_CONFIG, 1);
 
 PG_RESET_TEMPLATE(armingConfig_t, armingConfig,
     .gyro_cal_on_first_arm = 0,  // TODO - Cleanup retarded arm support
-    .disarm_kill_switch = 1,
     .auto_disarm_delay = 5
 );
 
@@ -92,7 +91,10 @@ PG_RESET_TEMPLATE(flight3DConfig_t, flight3DConfig,
     .deadband3d_low = 1406,
     .deadband3d_high = 1514,
     .neutral3d = 1460,
-    .deadband3d_throttle = 50
+    .deadband3d_throttle = 50,
+    .limit3d_low = 1000,
+    .limit3d_high = 2000,
+    .switched_mode3d = false
 );
 
 bool isUsingSticksForArming(void)
@@ -108,7 +110,7 @@ bool areSticksInApModePosition(uint16_t ap_mode)
 throttleStatus_e calculateThrottleStatus(void)
 {
     if (feature(FEATURE_3D)) {
-        if (IS_RC_MODE_ACTIVE(BOX3DDISABLE) || isModeActivationConditionPresent(BOX3DONASWITCH)) {
+        if (IS_RC_MODE_ACTIVE(BOX3D) || flight3DConfig()->switched_mode3d) {
             if (rcData[THROTTLE] < rxConfig()->mincheck) {
                 return THROTTLE_LOW;
             }
@@ -129,7 +131,7 @@ throttleStatus_e calculateThrottleStatus(void)
     rcDelayMs -= (t); \
     doNotRepeat = false; \
 }
-void processRcStickPositions(throttleStatus_e throttleStatus)
+void processRcStickPositions()
 {
     // time the sticks are maintained
     static int16_t rcDelayMs;
@@ -178,11 +180,7 @@ void processRcStickPositions(throttleStatus_e throttleStatus)
             if (ARMING_FLAG(ARMED) && rxIsReceivingSignal() && !failsafeIsActive()  ) {
                 rcDisarmTicks++;
                 if (rcDisarmTicks > 3) {
-                    if (armingConfig()->disarm_kill_switch) {
-                        disarm();
-                    } else if (throttleStatus == THROTTLE_LOW) {
-                        disarm();
-                    }
+                    disarm();
                 }
             }
         }
@@ -195,6 +193,14 @@ void processRcStickPositions(throttleStatus_e throttleStatus)
             else {
                 beeper(BEEPER_DISARM_REPEAT);     // sound tone while stick held
                 repeatAfter(STICK_AUTOREPEAT_MS); // disarm tone will repeat
+
+#ifdef USE_RUNAWAY_TAKEOFF
+                // Unset the ARMING_DISABLED_RUNAWAY_TAKEOFF arming disabled flag that might have been set
+                // by a runaway pidSum detection auto-disarm.
+                // This forces the pilot to explicitly perform a disarm sequence (even though we're implicitly disarmed)
+                // before they're able to rearm
+                unsetArmingDisabled(ARMING_DISABLED_RUNAWAY_TAKEOFF);
+#endif
             }
         }
         return;
@@ -211,7 +217,7 @@ void processRcStickPositions(throttleStatus_e throttleStatus)
         return;
     }
 
-    if (ARMING_FLAG(ARMED) || doNotRepeat || rcDelayMs <= STICK_DELAY_MS) {
+    if (ARMING_FLAG(ARMED) || doNotRepeat || rcDelayMs <= STICK_DELAY_MS || (getArmingDisableFlags() & ARMING_DISABLED_RUNAWAY_TAKEOFF)) {
         return;
     }
     doNotRepeat = true;
@@ -243,16 +249,18 @@ void processRcStickPositions(throttleStatus_e throttleStatus)
     }
 
     // Change PID profile
-    int newPidProfile = 0;
-    if (rcSticks == THR_LO + YAW_LO + PIT_CE + ROL_LO) {        // ROLL left  -> PID profile 1
-        newPidProfile = 1;
-    } else if (rcSticks == THR_LO + YAW_LO + PIT_HI + ROL_CE) { // PITCH up   -> PID profile 2
-        newPidProfile = 2;
-    } else if (rcSticks == THR_LO + YAW_LO + PIT_CE + ROL_HI) { // ROLL right -> PID profile 3
-        newPidProfile = 3;
-    }
-    if (newPidProfile) {
-        changePidProfile(newPidProfile - 1);
+    switch (rcSticks) {
+    case THR_LO + YAW_LO + PIT_CE + ROL_LO:
+        // ROLL left -> PID profile 1
+        changePidProfile(0);
+        return;
+    case THR_LO + YAW_LO + PIT_HI + ROL_CE:
+        // PITCH up -> PID profile 2
+        changePidProfile(1);
+        return;
+    case THR_LO + YAW_LO + PIT_CE + ROL_HI:
+        // ROLL right -> PID profile 3
+        changePidProfile(2);
         return;
     }
 
@@ -280,18 +288,23 @@ void processRcStickPositions(throttleStatus_e throttleStatus)
         memset(&accelerometerTrimsDelta, 0, sizeof(accelerometerTrimsDelta));
 
         bool shouldApplyRollAndPitchTrimDelta = false;
-        if (rcSticks == THR_HI + YAW_CE + PIT_HI + ROL_CE) {
+        switch (rcSticks) {
+        case THR_HI + YAW_CE + PIT_HI + ROL_CE:
             accelerometerTrimsDelta.values.pitch = 2;
             shouldApplyRollAndPitchTrimDelta = true;
-        } else if (rcSticks == THR_HI + YAW_CE + PIT_LO + ROL_CE) {
+            break;
+        case THR_HI + YAW_CE + PIT_LO + ROL_CE:
             accelerometerTrimsDelta.values.pitch = -2;
             shouldApplyRollAndPitchTrimDelta = true;
-        } else if (rcSticks == THR_HI + YAW_CE + PIT_CE + ROL_HI) {
+            break;
+        case THR_HI + YAW_CE + PIT_CE + ROL_HI:
             accelerometerTrimsDelta.values.roll = 2;
             shouldApplyRollAndPitchTrimDelta = true;
-        } else if (rcSticks == THR_HI + YAW_CE + PIT_CE + ROL_LO) {
+            break;
+        case THR_HI + YAW_CE + PIT_CE + ROL_LO:
             accelerometerTrimsDelta.values.roll = -2;
             shouldApplyRollAndPitchTrimDelta = true;
+            break;
         }
         if (shouldApplyRollAndPitchTrimDelta) {
             applyAndSaveAccelerometerTrimsDelta(&accelerometerTrimsDelta);
@@ -326,7 +339,7 @@ void processRcStickPositions(throttleStatus_e throttleStatus)
     }
 #endif
 
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
     if (rcSticks ==  THR_HI + YAW_LO + PIT_CE + ROL_HI) {
         vtxIncrementBand();
     }

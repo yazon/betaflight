@@ -26,6 +26,7 @@
 #else
 #define TARGET_BOARD_IDENTIFIER "SRFM"
 
+#undef USE_OSD
 #ifndef SPRACINGF3MINI_REV
 #define SPRACINGF3MINI_REV 2
 #endif
@@ -35,7 +36,8 @@
 #define LED0_PIN                PB3
 #endif
 
-#define BEEPER                  PC15
+#define USE_BEEPER
+#define BEEPER_PIN              PC15
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -71,23 +73,26 @@
 #define USE_MPU9250_MAG // Enables bypass configuration
 #define USE_MAG_AK8975
 #define USE_MAG_HMC5883 // External
+#define USE_MAG_QMC5883
 #define MAG_AK8975_ALIGN        CW90_DEG_FLIP
 #endif
 
-//#define USE_SONAR
-//#define SONAR_ECHO_PIN          PB1
-//#define SONAR_TRIGGER_PIN       PB0
+//#define USE_RANGEFINDER
+//#define USE_RANGEFINDER_HCSR04
+//#define RANGEFINDER_HCSR04_ECHO_PIN          PB1
+//#define RANGEFINDER_HCSR04_TRIGGER_PIN       PB0
 
 #define USE_BRUSHED_ESC_AUTODETECT
 
 #define USE_VCP
-#define USE_UART1
 #define USE_UART2
-#define USE_UART3
 
 #ifdef TINYBEEF3
-#define SERIAL_PORT_COUNT       4
+#define SERIAL_PORT_COUNT       2
 #else
+#define USE_UART1
+#define USE_UART3
+
 #define USB_DETECT_PIN          PB5
 
 #define USE_SOFTSERIAL1
@@ -122,7 +127,7 @@
 #define SOFTSERIAL1_TX_PIN      PA1 // PA1 / PAD4
 #endif
 
-#define SONAR_SOFTSERIAL1_EXCLUSIVE
+#define RANGEFINDER_HCSR04_SOFTSERIAL1_EXCLUSIVE
 
 #define USE_SPI
 
@@ -163,7 +168,6 @@
 
 // Note, this is the same DMA channel as UART1_RX. Luckily we don't use DMA for USART Rx.
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Channel5
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA1_FLAG_TC5
 
 // Performance logging for SD card operations:
 // #define AFATFS_USE_INTROSPECTIVE_LOGGING

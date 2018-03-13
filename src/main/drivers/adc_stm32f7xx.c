@@ -21,6 +21,8 @@
 
 #include "platform.h"
 
+#ifdef USE_ADC
+
 #include "drivers/accgyro/accgyro.h"
 #include "drivers/system.h"
 
@@ -34,12 +36,11 @@
 #include "adc.h"
 #include "adc_impl.h"
 
+#include "pg/adc.h"
+
+
 #ifndef ADC_INSTANCE
 #define ADC_INSTANCE                ADC1
-#endif
-
-#ifndef ADC1_DMA_STREAM
-#define ADC1_DMA_STREAM DMA2_Stream4
 #endif
 
 const adcDevice_t adcHardware[] = {
@@ -196,3 +197,4 @@ void adcInit(const adcConfig_t *config)
         /* Start Conversation Error */
     }
 }
+#endif

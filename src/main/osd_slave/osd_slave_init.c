@@ -30,8 +30,6 @@
 
 #include "config/config_eeprom.h"
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
 
 #include "drivers/adc.h"
 #include "drivers/bus.h"
@@ -77,6 +75,13 @@
 
 #include "osd_slave/osd_slave_init.h"
 
+#include "pg/adc.h"
+#include "pg/bus_i2c.h"
+#include "pg/bus_spi.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
+#include "pg/vcd.h"
+
 #include "scheduler/scheduler.h"
 
 #include "sensors/acceleration.h"
@@ -112,6 +117,20 @@ static IO_t busSwitchResetPin        = IO_NONE;
 
     // ENABLE
     IOLo(busSwitchResetPin);
+}
+#endif
+
+
+#ifdef USE_SPI
+// Pre-initialize all CS pins to input with pull-up.
+// It's sad that we can't do this with an initialized array,
+// since we will be taking care of configurable CS pins shortly.
+
+void spiPreInit(void)
+{
+#ifdef USE_MAX7456
+    spiPreInitCs(IO_TAG(MAX7456_SPI_CS_PIN));
+#endif
 }
 #endif
 
@@ -169,7 +188,7 @@ void init(void)
 
     serialInit(false, SERIAL_PORT_NONE);
 
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperInit(beeperDevConfig());
 #endif
 /* temp until PGs are implemented. */
@@ -182,6 +201,11 @@ void init(void)
 #else
 
 #ifdef USE_SPI
+    spiPinConfigure(spiPinConfig());
+
+    // Initialize CS lines and keep them high
+    spiPreInit();
+
 #ifdef USE_SPI_DEVICE_1
     spiInit(SPIDEV_1);
 #endif
@@ -197,7 +221,7 @@ void init(void)
 #endif /* USE_SPI */
 
 #ifdef USE_I2C
-    i2cHardwareConfigure();
+    i2cHardwareConfigure(i2cConfig());
 
     // Note: Unlike UARTs which are configured when client is present,
     // I2C buses are initialized unconditionally if they are configured.

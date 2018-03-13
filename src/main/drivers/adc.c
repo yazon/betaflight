@@ -26,14 +26,24 @@
 #include "build/build_config.h"
 #include "build/debug.h"
 
-#include "adc.h"
-#include "adc_impl.h"
+#include "drivers/adc_impl.h"
+#include "drivers/io.h"
 
+#include "pg/adc.h"
+
+#include "adc.h"
 
 //#define DEBUG_ADC_CHANNELS
 
 adcOperatingConfig_t adcOperatingConfig[ADC_CHANNEL_COUNT];
 volatile uint16_t adcValues[ADC_CHANNEL_COUNT];
+
+#ifdef USE_ADC_INTERNAL
+uint16_t adcTSCAL1;
+uint16_t adcTSCAL2;
+uint16_t adcTSSlopeK;
+uint16_t adcVREFINTCAL;
+#endif
 
 uint8_t adcChannelByTag(ioTag_t ioTag)
 {

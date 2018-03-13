@@ -27,7 +27,8 @@
 #define LED1_PIN                PB4
 #define LED1_INVERTED
 
-#define BEEPER                  PA12
+#define USE_BEEPER
+#define BEEPER_PIN              PA12
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -98,8 +99,6 @@
 #define VBAT_ADC_PIN            PA4
 #define CURRENT_METER_ADC_PIN   PA5
 #define RSSI_ADC_PIN            PA6
-
-#define USE_OSD
 
 #define CONFIG_FASTLOOP_PREFERRED_ACC ACC_DEFAULT
 

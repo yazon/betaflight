@@ -19,7 +19,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "config/parameter_group.h"
+#include "pg/pg.h"
 
 
 typedef enum {
@@ -46,7 +46,6 @@ typedef enum {
     TABLE_RX_SPI,
 #endif
     TABLE_GYRO_LPF,
-    TABLE_GYRO_HARDWARE,
     TABLE_ACC_HARDWARE,
 #ifdef USE_BARO
     TABLE_BARO_HARDWARE,
@@ -55,22 +54,34 @@ typedef enum {
     TABLE_MAG_HARDWARE,
 #endif
     TABLE_DEBUG,
-    TABLE_SUPEREXPO_YAW,
     TABLE_MOTOR_PWM_PROTOCOL,
     TABLE_RC_INTERPOLATION,
     TABLE_RC_INTERPOLATION_CHANNELS,
     TABLE_LOWPASS_TYPE,
     TABLE_FAILSAFE,
     TABLE_CRASH_RECOVERY,
-#ifdef USE_OSD
-    TABLE_OSD,
-#endif
 #ifdef USE_CAMERA_CONTROL
     TABLE_CAMERA_CONTROL_MODE,
 #endif
     TABLE_BUS_TYPE,
 #ifdef USE_MAX7456
     TABLE_MAX7456_CLOCK,
+#endif
+#ifdef USE_RANGEFINDER
+    TABLE_RANGEFINDER_HARDWARE,
+#endif
+#ifdef USE_GYRO_OVERFLOW_CHECK
+    TABLE_GYRO_OVERFLOW_CHECK,
+#endif
+    TABLE_RATES_TYPE,
+#ifdef USE_OVERCLOCK
+    TABLE_OVERCLOCK,
+#endif
+#ifdef USE_LED_STRIP
+    TABLE_RGB_GRB,
+#endif
+#ifdef USE_DUAL_GYRO
+    TABLE_GYRO,
 #endif
     LOOKUP_TABLE_COUNT
 } lookupTableIndex_e;
@@ -153,3 +164,5 @@ extern const char * const lookupTableBaroHardware[];
 
 extern const char * const lookupTableMagHardware[];
 //extern const uint8_t lookupTableMagHardwareEntryCount;
+
+extern const char * const lookupTableRangefinderHardware[];

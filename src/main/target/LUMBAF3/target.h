@@ -20,7 +20,8 @@
 #define TARGET_BOARD_IDENTIFIER "MCF3" // LumbaF3 Flight Controller by mC
 
 #define LED0_PIN                PB3
-#define BEEPER                  PC15
+#define USE_BEEPER
+#define BEEPER_PIN              PC15
 
 #define USE_EXTI
 #define MPU_INT_EXTI            PA3
@@ -74,8 +75,6 @@
 #define VBAT_ADC_PIN            PA0
 
 #define USE_SERIAL_4WAY_BLHELI_INTERFACE
-
-#define USE_LED_STRIP
 
 #define CAMERA_CONTROL_PIN      PA15
 

@@ -29,7 +29,8 @@
 #define LED0_PIN                PB3
 #define LED1_PIN                PB4
 
-#define BEEPER                  PA12
+#define USE_BEEPER
+#define BEEPER_PIN              PA12
 
 #if defined(AFROMINI)
 #define BEEPER_INVERTED
@@ -110,11 +111,12 @@
 #define MAG_HMC5883_ALIGN       CW180_DEG
 */
 
-//#define USE_SONAR
-//#define SONAR_TRIGGER_PIN       PB0
-//#define SONAR_ECHO_PIN          PB1
-//#define SONAR_TRIGGER_PIN_PWM   PB8
-//#define SONAR_ECHO_PIN_PWM      PB9
+//#define USE_RANGEFINDER
+//#define USE_RANGEFINDER_HCSR04
+//#define RANGEFINDER_HCSR04_TRIGGER_PIN       PB0
+//#define RANGEFINDER_HCSR04_ECHO_PIN          PB1
+//#define RANGEFINDER_HCSR04_TRIGGER_PIN_PWM   PB8
+//#define RANGEFINDER_HCSR04_ECHO_PIN_PWM      PB9
 
 #define USE_UART1
 #define USE_UART2

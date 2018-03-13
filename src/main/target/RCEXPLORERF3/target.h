@@ -19,12 +19,19 @@
 
 #define TARGET_BOARD_IDENTIFIER "REF3"
 
+//Making it fit into flash:
+#undef USE_RTC_TIME
+#undef USE_COPY_PROFILE_CMS_MENU
+#undef USE_RX_MSP
+
+
 #define CONFIG_FASTLOOP_PREFERRED_ACC ACC_NONE
 
 #define LED0_PIN    PB4
 #define LED1_PIN    PB5
 
-#define BEEPER      PA0
+#define USE_BEEPER
+#define BEEPER_PIN  PA0
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -52,9 +59,10 @@
 
 #define MAG_AK8975_ALIGN CW180_DEG
 
-#define USE_SONAR
-#define SONAR_TRIGGER_PIN           PA6   // RC_CH7 (PB0) - only 3.3v ( add a 1K Ohms resistor )
-#define SONAR_ECHO_PIN              PB1   // RC_CH8 (PB1) - only 3.3v ( add a 1K Ohms resistor )
+#define USE_RANGEFINDER
+#define USE_RANGEFINDER_HCSR04
+#define RANGEFINDER_HCSR04_TRIGGER_PIN           PA6   // RC_CH7 (PB0) - only 3.3v ( add a 1K Ohms resistor )
+#define RANGEFINDER_HCSR04_ECHO_PIN              PB1   // RC_CH8 (PB1) - only 3.3v ( add a 1K Ohms resistor )
 
 #define USE_VCP
 #define USE_UART1

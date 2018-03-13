@@ -22,7 +22,8 @@
 #define LED0_PIN                 PC1
 #define LED1_PIN                 PC0
 
-#define BEEPER                   PA8
+#define USE_BEEPER
+#define BEEPER_PIN               PA8
 #define BEEPER_INVERTED
 
 #define MPU6000_CS_PIN           PB2
@@ -73,7 +74,6 @@
 #define SDCARD_SPI_FULL_SPEED_CLOCK_DIVIDER     2
 
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Channel3
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA1_FLAG_TC3
 #define ENABLE_BLACKBOX_LOGGING_ON_SDCARD_BY_DEFAULT
 
 #define USE_VCP

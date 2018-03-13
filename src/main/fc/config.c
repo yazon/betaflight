@@ -22,42 +22,12 @@
 
 #include "platform.h"
 
-#include "build/build_config.h"
 #include "build/debug.h"
-
-#include "blackbox/blackbox_io.h"
-
-#include "cms/cms.h"
-
-#include "common/axis.h"
-#include "common/color.h"
-#include "common/filter.h"
-#include "common/maths.h"
 
 #include "config/config_eeprom.h"
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
 
-#include "drivers/accgyro/accgyro.h"
-#include "drivers/bus_spi.h"
-#include "drivers/compass/compass.h"
-#include "drivers/inverter.h"
-#include "drivers/io.h"
-#include "drivers/light_led.h"
-#include "drivers/light_ws2811strip.h"
-#include "drivers/max7456.h"
-#include "drivers/pwm_esc_detect.h"
-#include "drivers/pwm_output.h"
-#include "drivers/rx_pwm.h"
-#include "drivers/rx_spi.h"
-#include "drivers/sdcard.h"
-#include "drivers/sensor.h"
-#include "drivers/sonar_hcsr04.h"
-#include "drivers/sound_beeper.h"
 #include "drivers/system.h"
-#include "drivers/timer.h"
-#include "drivers/vcd.h"
 
 #include "fc/config.h"
 #include "fc/controlrate_profile.h"
@@ -65,9 +35,7 @@
 #include "fc/fc_rc.h"
 #include "fc/rc_adjustments.h"
 #include "fc/rc_controls.h"
-#include "fc/runtime_config.h"
 
-#include "flight/altitude.h"
 #include "flight/failsafe.h"
 #include "flight/imu.h"
 #include "flight/mixer.h"
@@ -76,47 +44,26 @@
 #include "flight/servos.h"
 
 #include "io/beeper.h"
-#include "io/gimbal.h"
-#include "io/gps.h"
 #include "io/ledstrip.h"
-#include "io/motors.h"
-#include "io/osd.h"
 #include "io/serial.h"
-#include "io/servos.h"
-#include "io/vtx_control.h"
+
+#include "pg/beeper.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 #include "rx/rx.h"
-#include "rx/rx_spi.h"
 
 #include "sensors/acceleration.h"
-#include "sensors/barometer.h"
 #include "sensors/battery.h"
-#include "sensors/boardalignment.h"
-#include "sensors/compass.h"
 #include "sensors/gyro.h"
-#include "sensors/sensors.h"
-
-#include "telemetry/telemetry.h"
 
 #ifndef USE_OSD_SLAVE
 pidProfile_t *currentPidProfile;
 #endif
 
-#ifndef DEFAULT_FEATURES
-#define DEFAULT_FEATURES 0
-#endif
-#ifndef DEFAULT_RX_FEATURE
-#define DEFAULT_RX_FEATURE FEATURE_RX_PARALLEL_PWM
-#endif
 #ifndef RX_SPI_DEFAULT_PROTOCOL
 #define RX_SPI_DEFAULT_PROTOCOL 0
 #endif
-
-PG_REGISTER_WITH_RESET_TEMPLATE(featureConfig_t, featureConfig, PG_FEATURE_CONFIG, 0);
-
-PG_RESET_TEMPLATE(featureConfig_t, featureConfig,
-    .enabledFeatures = DEFAULT_FEATURES | DEFAULT_RX_FEATURE
-);
 
 PG_REGISTER_WITH_RESET_TEMPLATE(pilotConfig_t, pilotConfig, PG_PILOT_CONFIG, 0);
 
@@ -126,118 +73,15 @@ PG_RESET_TEMPLATE(pilotConfig_t, pilotConfig,
 
 PG_REGISTER_WITH_RESET_TEMPLATE(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 2);
 
-#ifdef USE_OSD_SLAVE
-PG_RESET_TEMPLATE(systemConfig_t, systemConfig,
-    .debug_mode = DEBUG_MODE,
-    .task_statistics = true,
-    .boardIdentifier = TARGET_BOARD_IDENTIFIER
-);
-#else
 PG_RESET_TEMPLATE(systemConfig_t, systemConfig,
     .pidProfileIndex = 0,
     .activeRateProfile = 0,
     .debug_mode = DEBUG_MODE,
     .task_statistics = true,
-    .cpu_overclock = false,
+    .cpu_overclock = 0,
     .powerOnArmingGraceTime = 5,
     .boardIdentifier = TARGET_BOARD_IDENTIFIER
 );
-#endif
-
-
-#ifdef USE_ADC
-PG_REGISTER_WITH_RESET_FN(adcConfig_t, adcConfig, PG_ADC_CONFIG, 0);
-#endif
-#ifdef USE_PWM
-PG_REGISTER_WITH_RESET_FN(pwmConfig_t, pwmConfig, PG_PWM_CONFIG, 0);
-#endif
-#ifdef USE_PPM
-PG_REGISTER_WITH_RESET_FN(ppmConfig_t, ppmConfig, PG_PPM_CONFIG, 0);
-#endif
-
-#ifdef USE_FLASHFS
-PG_REGISTER_WITH_RESET_FN(flashConfig_t, flashConfig, PG_FLASH_CONFIG, 0);
-
-void pgResetFn_flashConfig(flashConfig_t *flashConfig)
-{
-#ifdef M25P16_CS_PIN
-    flashConfig->csTag = IO_TAG(M25P16_CS_PIN);
-#else
-    flashConfig->csTag = IO_TAG_NONE;
-#endif
-    flashConfig->spiDevice = SPI_DEV_TO_CFG(spiDeviceByInstance(M25P16_SPI_INSTANCE));
-}
-#endif // USE_FLASH_FS
-
-#ifdef USE_SDCARD
-PG_REGISTER_WITH_RESET_TEMPLATE(sdcardConfig_t, sdcardConfig, PG_SDCARD_CONFIG, 0);
-
-PG_RESET_TEMPLATE(sdcardConfig_t, sdcardConfig,
-    .useDma = false
-);
-#endif // USE_SDCARD
-
-// no template required since defaults are zero
-PG_REGISTER(vcdProfile_t, vcdProfile, PG_VCD_CONFIG, 0);
-
-#ifdef USE_ADC
-void pgResetFn_adcConfig(adcConfig_t *adcConfig)
-{
-    adcConfig->device = ADC_DEV_TO_CFG(adcDeviceByInstance(ADC_INSTANCE));
-
-#ifdef VBAT_ADC_PIN
-    adcConfig->vbat.enabled = true;
-    adcConfig->vbat.ioTag = IO_TAG(VBAT_ADC_PIN);
-#endif
-
-#ifdef EXTERNAL1_ADC_PIN
-    adcConfig->external1.enabled = true;
-    adcConfig->external1.ioTag = IO_TAG(EXTERNAL1_ADC_PIN);
-#endif
-
-#ifdef CURRENT_METER_ADC_PIN
-    adcConfig->current.enabled = true;
-    adcConfig->current.ioTag = IO_TAG(CURRENT_METER_ADC_PIN);
-#endif
-
-#ifdef RSSI_ADC_PIN
-    adcConfig->rssi.enabled = true;
-    adcConfig->rssi.ioTag = IO_TAG(RSSI_ADC_PIN);
-#endif
-
-}
-#endif // USE_ADC
-
-
-#if defined(USE_PWM) || defined(USE_PPM)
-void pgResetFn_ppmConfig(ppmConfig_t *ppmConfig)
-{
-#ifdef PPM_PIN
-    ppmConfig->ioTag = IO_TAG(PPM_PIN);
-#else
-    for (int i = 0; i < USABLE_TIMER_CHANNEL_COUNT; i++) {
-        if (timerHardware[i].usageFlags & TIM_USE_PPM) {
-            ppmConfig->ioTag = timerHardware[i].tag;
-            return;
-        }
-    }
-
-    ppmConfig->ioTag = IO_TAG_NONE;
-#endif
-}
-
-void pgResetFn_pwmConfig(pwmConfig_t *pwmConfig)
-{
-    pwmConfig->inputFilteringMode = INPUT_FILTERING_DISABLED;
-    int inputIndex = 0;
-    for (int i = 0; i < USABLE_TIMER_CHANNEL_COUNT && inputIndex < PWM_INPUT_PORT_COUNT; i++) {
-        if (timerHardware[i].usageFlags & TIM_USE_PWM) {
-            pwmConfig->ioTags[inputIndex] = timerHardware[i].tag;
-            inputIndex++;
-        }
-    }
-}
-#endif
 
 #ifdef SWAP_SERIAL_PORT_0_AND_1_DEFAULTS
 #define FIRST_PORT_INDEX 1
@@ -293,7 +137,7 @@ void resetConfigs(void)
 void activateConfig(void)
 {
 #ifndef USE_OSD_SLAVE
-    generateThrottleCurve();
+    initRcProcessing();
 
     resetAdjustmentStates();
 
@@ -435,8 +279,8 @@ static void validateAndFixConfig(void)
     featureClear(FEATURE_GPS);
 #endif
 
-#ifndef USE_SONAR
-    featureClear(FEATURE_SONAR);
+#ifndef USE_RANGEFINDER
+    featureClear(FEATURE_RANGEFINDER);
 #endif
 
 #ifndef USE_TELEMETRY
@@ -656,7 +500,7 @@ void changePidProfile(uint8_t pidProfileIndex)
 
 void beeperOffSet(uint32_t mask)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperConfigMutable()->beeper_off_flags |= mask;
 #else
     UNUSED(mask);
@@ -665,7 +509,7 @@ void beeperOffSet(uint32_t mask)
 
 void beeperOffSetAll(uint8_t beeperCount)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperConfigMutable()->beeper_off_flags = (1 << beeperCount) -1;
 #else
     UNUSED(beeperCount);
@@ -674,7 +518,7 @@ void beeperOffSetAll(uint8_t beeperCount)
 
 void beeperOffClear(uint32_t mask)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperConfigMutable()->beeper_off_flags &= ~(mask);
 #else
     UNUSED(mask);
@@ -683,14 +527,14 @@ void beeperOffClear(uint32_t mask)
 
 void beeperOffClearAll(void)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperConfigMutable()->beeper_off_flags = 0;
 #endif
 }
 
 uint32_t getBeeperOffMask(void)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     return beeperConfig()->beeper_off_flags;
 #else
     return 0;
@@ -699,7 +543,7 @@ uint32_t getBeeperOffMask(void)
 
 void setBeeperOffMask(uint32_t mask)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperConfigMutable()->beeper_off_flags = mask;
 #else
     UNUSED(mask);
@@ -708,7 +552,7 @@ void setBeeperOffMask(uint32_t mask)
 
 uint32_t getPreferredBeeperOffMask(void)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     return beeperConfig()->preferred_beeper_off_flags;
 #else
     return 0;
@@ -717,7 +561,7 @@ uint32_t getPreferredBeeperOffMask(void)
 
 void setPreferredBeeperOffMask(uint32_t mask)
 {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     beeperConfigMutable()->preferred_beeper_off_flags = mask;
 #else
     UNUSED(mask);

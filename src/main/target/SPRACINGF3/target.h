@@ -37,7 +37,8 @@
 #define LED0_PIN                PB3
 #endif
 
-#define BEEPER                  PC15
+#define USE_BEEPER
+#define BEEPER_PIN              PC15
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -89,12 +90,10 @@
 #endif
 
 #if defined(FLIP32F3OSD)
-#define USE_SONAR
-#define SONAR_TRIGGER_PIN       PB0
-#define SONAR_ECHO_PIN          PB1
-
-#elif defined(RMDO)
-#undef USE_GPS
+#define USE_RANGEFINDER
+#define USE_RANGEFINDER_HCSR04
+#define RANGEFINDER_HCSR04_TRIGGER_PIN       PB0
+#define RANGEFINDER_HCSR04_ECHO_PIN          PB1
 
 #elif defined(ZCOREF3)
 #define USE_MAG_DATA_READY_SIGNAL
@@ -102,9 +101,10 @@
 
 #else //SPRACINGF3
 
-#define USE_SONAR
-#define SONAR_TRIGGER_PIN       PB0
-#define SONAR_ECHO_PIN          PB1
+#define USE_RANGEFINDER
+#define USE_RANGEFINDER_HCSR04
+#define RANGEFINDER_HCSR04_TRIGGER_PIN       PB0
+#define RANGEFINDER_HCSR04_ECHO_PIN          PB1
 
 #define USE_BARO_MS5611
 #define USE_BARO_BMP085
@@ -112,6 +112,7 @@
 #define USE_MAG
 #define USE_MAG_AK8975
 #define USE_MAG_HMC5883
+#define USE_MAG_QMC5883
 #define MAG_HMC5883_ALIGN       CW270_DEG
 
 #define USE_MAG_DATA_READY_SIGNAL
@@ -137,7 +138,7 @@
 #define SOFTSERIAL2_RX_PIN      PB0 // PWM 7
 #define SOFTSERIAL2_TX_PIN      PB1 // PWM 8
 
-#define SONAR_SOFTSERIAL2_EXCLUSIVE
+#define RANGEFINDER_HCSR04_SOFTSERIAL2_EXCLUSIVE
 #endif
 
 #define USE_ESCSERIAL
@@ -170,7 +171,6 @@
 #define CURRENT_METER_ADC_PIN   PA5
 #define RSSI_ADC_PIN            PB2
 
-#define USE_OSD
 #define USE_OSD_OVER_MSP_DISPLAYPORT
 #define USE_SLOW_MSP_DISPLAYPORT_RATE_WHEN_UNARMED
 

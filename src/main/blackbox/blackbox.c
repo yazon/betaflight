@@ -40,8 +40,8 @@
 #include "common/utils.h"
 
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 #include "drivers/compass/compass.h"
 #include "drivers/sensor.h"
@@ -69,13 +69,7 @@
 #include "sensors/battery.h"
 #include "sensors/compass.h"
 #include "sensors/gyro.h"
-#include "sensors/sonar.h"
-
-enum {
-    BLACKBOX_MODE_NORMAL = 0,
-    BLACKBOX_MODE_MOTOR_TEST,
-    BLACKBOX_MODE_ALWAYS_ON
-};
+#include "sensors/rangefinder.h"
 
 #if defined(ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT)
 #define DEFAULT_BLACKBOX_DEVICE     BLACKBOX_DEVICE_FLASH
@@ -201,8 +195,8 @@ static const blackboxDeltaFieldDefinition_t blackboxMainFields[] = {
 #ifdef USE_BARO
     {"BaroAlt",    -1, SIGNED,   .Ipredict = PREDICT(0),       .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(TAG8_8SVB), FLIGHT_LOG_FIELD_CONDITION_BARO},
 #endif
-#ifdef USE_SONAR
-    {"sonarRaw",   -1, SIGNED,   .Ipredict = PREDICT(0),       .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(TAG8_8SVB), FLIGHT_LOG_FIELD_CONDITION_SONAR},
+#ifdef USE_RANGEFINDER
+    {"surfaceRaw",   -1, SIGNED,   .Ipredict = PREDICT(0),       .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(TAG8_8SVB), FLIGHT_LOG_FIELD_CONDITION_RANGEFINDER},
 #endif
     {"rssi",       -1, UNSIGNED, .Ipredict = PREDICT(0),       .Iencode = ENCODING(UNSIGNED_VB), .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(TAG8_8SVB), FLIGHT_LOG_FIELD_CONDITION_RSSI},
 
@@ -289,7 +283,7 @@ typedef struct blackboxMainState_s {
 
     int16_t rcCommand[4];
     int16_t gyroADC[XYZ_AXIS_COUNT];
-    int16_t accSmooth[XYZ_AXIS_COUNT];
+    int16_t accADC[XYZ_AXIS_COUNT];
     int16_t debug[DEBUG16_VALUE_COUNT];
     int16_t motor[MAX_SUPPORTED_MOTORS];
     int16_t servo[MAX_SUPPORTED_SERVOS];
@@ -303,8 +297,8 @@ typedef struct blackboxMainState_s {
 #ifdef USE_MAG
     int16_t magADC[XYZ_AXIS_COUNT];
 #endif
-#ifdef USE_SONAR
-    int32_t sonarRaw;
+#ifdef USE_RANGEFINDER
+    int32_t surfaceRaw;
 #endif
     uint16_t rssi;
 } blackboxMainState_t;
@@ -437,9 +431,9 @@ static bool testBlackboxConditionUncached(FlightLogFieldCondition condition)
     case FLIGHT_LOG_FIELD_CONDITION_AMPERAGE_ADC:
         return (batteryConfig()->currentMeterSource != CURRENT_METER_NONE) && (batteryConfig()->currentMeterSource != CURRENT_METER_VIRTUAL);
 
-    case FLIGHT_LOG_FIELD_CONDITION_SONAR:
-#ifdef USE_SONAR
-        return feature(FEATURE_SONAR);
+    case FLIGHT_LOG_FIELD_CONDITION_RANGEFINDER:
+#ifdef USE_RANGEFINDER
+        return sensors(SENSOR_RANGEFINDER);
 #else
         return false;
 #endif
@@ -568,9 +562,9 @@ static void writeIntraframe(void)
     }
 #endif
 
-#ifdef USE_SONAR
-    if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_SONAR)) {
-        blackboxWriteSignedVB(blackboxCurrent->sonarRaw);
+#ifdef USE_RANGEFINDER
+    if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_RANGEFINDER)) {
+        blackboxWriteSignedVB(blackboxCurrent->surfaceRaw);
     }
 #endif
 
@@ -580,7 +574,7 @@ static void writeIntraframe(void)
 
     blackboxWriteSigned16VBArray(blackboxCurrent->gyroADC, XYZ_AXIS_COUNT);
     if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_ACC)) {
-        blackboxWriteSigned16VBArray(blackboxCurrent->accSmooth, XYZ_AXIS_COUNT);
+        blackboxWriteSigned16VBArray(blackboxCurrent->accADC, XYZ_AXIS_COUNT);
     }
 
     if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_DEBUG)) {
@@ -698,9 +692,9 @@ static void writeInterframe(void)
     }
 #endif
 
-#ifdef USE_SONAR
-    if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_SONAR)) {
-        deltas[optionalFieldCount++] = blackboxCurrent->sonarRaw - blackboxLast->sonarRaw;
+#ifdef USE_RANGEFINDER
+    if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_RANGEFINDER)) {
+        deltas[optionalFieldCount++] = blackboxCurrent->surfaceRaw - blackboxLast->surfaceRaw;
     }
 #endif
 
@@ -713,7 +707,7 @@ static void writeInterframe(void)
     //Since gyros, accs and motors are noisy, base their predictions on the average of the history:
     blackboxWriteMainStateArrayUsingAveragePredictor(offsetof(blackboxMainState_t, gyroADC),   XYZ_AXIS_COUNT);
     if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_ACC)) {
-        blackboxWriteMainStateArrayUsingAveragePredictor(offsetof(blackboxMainState_t, accSmooth), XYZ_AXIS_COUNT);
+        blackboxWriteMainStateArrayUsingAveragePredictor(offsetof(blackboxMainState_t, accADC), XYZ_AXIS_COUNT);
     }
     if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_DEBUG)) {
         blackboxWriteMainStateArrayUsingAveragePredictor(offsetof(blackboxMainState_t, debug), DEBUG16_VALUE_COUNT);
@@ -880,12 +874,10 @@ void blackboxFinish(void)
     case BLACKBOX_STATE_SHUTTING_DOWN:
         // We're already stopped/shutting down
         break;
-
     case BLACKBOX_STATE_RUNNING:
     case BLACKBOX_STATE_PAUSED:
         blackboxLogEvent(FLIGHT_LOG_EVENT_LOG_END, NULL);
-
-        // Fall through
+        FALLTHROUGH;
     default:
         blackboxSetState(BLACKBOX_STATE_SHUTTING_DOWN);
     }
@@ -996,7 +988,7 @@ static void loadMainState(timeUs_t currentTimeUs)
         blackboxCurrent->axisPID_I[i] = axisPID_I[i];
         blackboxCurrent->axisPID_D[i] = axisPID_D[i];
         blackboxCurrent->gyroADC[i] = lrintf(gyro.gyroADCf[i]);
-        blackboxCurrent->accSmooth[i] = acc.accSmooth[i];
+        blackboxCurrent->accADC[i] = acc.accADC[i];
 #ifdef USE_MAG
         blackboxCurrent->magADC[i] = mag.magADC[i];
 #endif
@@ -1022,9 +1014,9 @@ static void loadMainState(timeUs_t currentTimeUs)
     blackboxCurrent->BaroAlt = baro.BaroAlt;
 #endif
 
-#ifdef USE_SONAR
+#ifdef USE_RANGEFINDER
     // Store the raw sonar value without applying tilt correction
-    blackboxCurrent->sonarRaw = sonarRead();
+    blackboxCurrent->surfaceRaw = rangefinderGetLatestAltitude();
 #endif
 
     blackboxCurrent->rssi = getRssi();
@@ -1234,14 +1226,16 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("looptime", "%d",                        gyro.targetLooptime);
         BLACKBOX_PRINT_HEADER_LINE("gyro_sync_denom", "%d",                 gyroConfig()->gyro_sync_denom);
         BLACKBOX_PRINT_HEADER_LINE("pid_process_denom", "%d",               pidConfig()->pid_process_denom);
-        BLACKBOX_PRINT_HEADER_LINE("rc_rate", "%d",                         currentControlRateProfile->rcRate8);
-        BLACKBOX_PRINT_HEADER_LINE("rc_expo", "%d",                         currentControlRateProfile->rcExpo8);
-        BLACKBOX_PRINT_HEADER_LINE("rc_rate_yaw", "%d",                     currentControlRateProfile->rcYawRate8);
-        BLACKBOX_PRINT_HEADER_LINE("rc_expo_yaw", "%d",                     currentControlRateProfile->rcYawExpo8);
         BLACKBOX_PRINT_HEADER_LINE("thr_mid", "%d",                         currentControlRateProfile->thrMid8);
         BLACKBOX_PRINT_HEADER_LINE("thr_expo", "%d",                        currentControlRateProfile->thrExpo8);
         BLACKBOX_PRINT_HEADER_LINE("tpa_rate", "%d",                        currentControlRateProfile->dynThrPID);
         BLACKBOX_PRINT_HEADER_LINE("tpa_breakpoint", "%d",                  currentControlRateProfile->tpa_breakpoint);
+        BLACKBOX_PRINT_HEADER_LINE("rc_rates", "%d,%d,%d",                  currentControlRateProfile->rcRates[ROLL],
+                                                                            currentControlRateProfile->rcRates[PITCH],
+                                                                            currentControlRateProfile->rcRates[YAW]);
+        BLACKBOX_PRINT_HEADER_LINE("rc_expo", "%d,%d,%d",                   currentControlRateProfile->rcExpo[ROLL],
+                                                                            currentControlRateProfile->rcExpo[PITCH],
+                                                                            currentControlRateProfile->rcExpo[YAW]);
         BLACKBOX_PRINT_HEADER_LINE("rates", "%d,%d,%d",                     currentControlRateProfile->rates[ROLL],
                                                                             currentControlRateProfile->rates[PITCH],
                                                                             currentControlRateProfile->rates[YAW]);

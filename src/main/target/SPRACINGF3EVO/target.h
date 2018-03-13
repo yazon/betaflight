@@ -25,6 +25,12 @@
 #define TARGET_BOARD_IDENTIFIER "SPEV"
 #endif
 
+//Making it fit into flash:
+#undef USE_RTC_TIME
+#undef USE_COPY_PROFILE_CMS_MENU
+#undef USE_RX_MSP
+
+
 #if !defined(AIORACERF3)
 #define USE_TARGET_CONFIG
 #endif
@@ -38,12 +44,6 @@
 
 #endif // SPRACINGF3MQ
 
-// Space reduction measures to make the firmware fit into flash:
-#undef USE_TELEMETRY_JETIEXBUS
-#undef USE_SERIALRX_JETIEXBUS
-#undef USE_TELEMETRY_MAVLINK
-#undef USE_DASHBOARD
-
 
 #define CONFIG_FASTLOOP_PREFERRED_ACC ACC_DEFAULT
 
@@ -51,7 +51,8 @@
 
 #define LED0_PIN                PB8
 
-#define BEEPER                  PC15
+#define USE_BEEPER
+#define BEEPER_PIN              PC15
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -80,9 +81,10 @@
 #define USE_MAG_AK8963
 //#define USE_MAG_HMC5883 // External
 
-#define MAG_AK8963_ALIGN CW90_DEG_FLIP
+#define MAG_AK8963_ALIGN CW270_DEG_FLIP
 
-//#define USE_SONAR
+//#define USE_RANGEFINDER
+//#define USE_RANGEFINDER_HCSR04
 
 #define USE_VCP
 #define USE_UART1
@@ -145,7 +147,6 @@
 
 // Note, this is the same DMA channel as UART1_RX. Luckily we don't use DMA for USART Rx.
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Channel5
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA1_FLAG_TC5
 
 #define MPU6500_CS_PIN                   PB9
 #define MPU6500_SPI_INSTANCE             SPI1
@@ -164,7 +165,6 @@
 #define CURRENT_METER_ADC_PIN   PA5
 #endif
 
-#define USE_OSD
 #define DISABLE_EXTENDED_CMS_OSD_MENU
 #define USE_OSD_OVER_MSP_DISPLAYPORT
 #define USE_MSP_CURRENT_METER

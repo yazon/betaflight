@@ -26,7 +26,8 @@
 #define LED0_PIN   PB6  //red
 #define LED1_PIN   PB9  //blue
 
-#define BEEPER   PB2 // Unused pin, can be mapped to elsewhere
+#define USE_BEEPER
+#define BEEPER_PIN PB2 // Unused pin, can be mapped to elsewhere
 #define BEEPER_INVERTED
 
 #define MPU6000_CS_PIN        PA4
@@ -117,7 +118,6 @@
 #define USE_FLASH_M25P16
 #define ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT
 
-#define USE_OSD
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI3
 #define MAX7456_SPI_CS_PIN      SPI3_NSS_PIN

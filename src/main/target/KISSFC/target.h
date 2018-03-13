@@ -31,7 +31,8 @@
 
 #define LED0_PIN                PB1
 
-#define BEEPER                  PB13
+#define USE_BEEPER
+#define BEEPER_PIN              PB13
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -48,6 +49,9 @@
 #define USE_ACC
 #define USE_ACC_MPU6050
 #define ACC_MPU6050_ALIGN       CW90_DEG
+
+#define TARGET_DEFAULT_MIXER    MIXER_QUADX_1234
+
 #undef USE_LED_STRIP
 #else
 #define USE_GYRO

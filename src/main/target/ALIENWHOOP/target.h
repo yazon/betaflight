@@ -55,11 +55,10 @@
 #define LED0_PIN                PC12 // conflicts UART5
 #define LED1_PIN                PD2  // conflicts UART5
 
-#define USE_LED_STRIP
-
 /* Lost Quad Mode and Alerts - RCX03-787 Low Voltage Active Buzzer
  */
-#define BEEPER                 PA2
+#define USE_BEEPER
+#define BEEPER_PIN             PA2
 #define BEEPER_INVERTED
 
 /* Serial Peripheral Interface (SPI) - Up to 50 Mbit/s on F7
@@ -105,8 +104,6 @@
 #endif
 
 /* OSD MAX7456E */
-#define USE_OSD
-
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI2
 #define MAX7456_SPI_CS_PIN      SPI2_NSS_PIN
@@ -200,10 +197,10 @@
 #endif
 
 /* OSD currently dependent upon CMS, SMARTAUDIO, TRAMP
-#undef VTX_COMMON
-#undef VTX_CONTROL
-#undef VTX_SMARTAUDIO
-#undef VTX_TRAMP
+#undef USE_VTX_COMMON
+#undef USE_VTX_CONTROL
+#undef USE_VTX_SMARTAUDIO
+#undef USE_VTX_TRAMP
 */
 
 /* OLED Support

@@ -22,8 +22,11 @@
 
 #define LED0_PIN                PB4
 
-#define BEEPER                  PB3
+#define USE_BEEPER
+#define BEEPER_PIN              PB3
 #define BEEPER_INVERTED
+
+#define ENABLE_DSHOT_DMAR       true
 
 // ICM20689 interrupt
 #define USE_EXTI
@@ -46,7 +49,6 @@
 #define USE_BARO
 #define USE_BARO_BMP280
 
-#define USE_OSD
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI3
 #define MAX7456_SPI_CS_PIN      SPI3_NSS_PIN
@@ -68,9 +70,7 @@
 #define SDCARD_SPI_FULL_SPEED_CLOCK_DIVIDER     4 // 21MHz
 
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Stream4
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA_FLAG_TCIF4
-#define SDCARD_DMA_CLK                      RCC_AHB1Periph_DMA1
-#define SDCARD_DMA_CHANNEL                  DMA_Channel_0
+#define SDCARD_DMA_CHANNEL                  0
 
 #define USE_VCP
 #define VBUS_SENSING_ENABLED
@@ -138,8 +138,6 @@
 #define CURRENT_METER_ADC_PIN   PC1
 
 #define RSSI_ADC_PIN            PC2
-
-#define USE_LED_STRIP
 
 #define USE_TRANSPONDER
 

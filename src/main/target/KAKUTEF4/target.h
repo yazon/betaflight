@@ -30,7 +30,8 @@
 #define LED1_PIN                PB4
 #define LED2_PIN                PB6
 
-#define BEEPER                  PC9
+#define USE_BEEPER
+#define BEEPER_PIN              PC9
 #define BEEPER_INVERTED
 #define INVERTER_PIN_UART3      PB15
 
@@ -63,6 +64,7 @@
 
 #define USE_MAG
 #define USE_MAG_HMC5883                   //External, connect to I2C1
+#define USE_MAG_QMC5883
 #define MAG_HMC5883_ALIGN       CW180_DEG
 
 #define USE_BARO
@@ -70,10 +72,11 @@
 #define USE_BARO_BMP280                  //onboard
 #endif
 
-#define USE_OSD
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI3
 #define MAX7456_SPI_CS_PIN      PB14
+#define MAX7456_SPI_CLK         (SPI_CLOCK_STANDARD)
+#define MAX7456_RESTORE_CLK     (SPI_CLOCK_FAST)
 
 #define M25P16_CS_PIN           PB3
 #define M25P16_SPI_INSTANCE     SPI3

@@ -23,7 +23,8 @@
 
 
 #define LED0_PIN                PC14
-#define BEEPER                  PC15
+#define USE_BEEPER
+#define BEEPER_PIN              PC15
 #define BEEPER_INVERTED
 
 #define USE_MAG_DATA_READY_SIGNAL
@@ -72,7 +73,7 @@
 
 #define SOFTSERIAL1_RX_PIN      PB0  // PWM 5
 #define SOFTSERIAL1_TX_PIN      PB1  // PWM 6
-#define SONAR_SOFTSERIAL1_EXCLUSIVE
+#define RANGEFINDER_HCSR04_SOFTSERIAL1_EXCLUSIVE
 
 #define USE_I2C
 #define USE_I2C_DEVICE_1

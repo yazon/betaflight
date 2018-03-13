@@ -50,8 +50,13 @@
 
 #define LED0_PIN                PB5
 //#define LED1_PIN                PB4 // Remove this at the next major release
-#define BEEPER                  PB4
+#define USE_BEEPER
+#define BEEPER_PIN              PB4
 #define BEEPER_INVERTED
+
+#if defined(OMNIBUSF4SD) || defined(DYSF4PRO)
+#define ENABLE_DSHOT_DMAR       true
+#endif
 
 #ifdef OMNIBUSF4SD
 // These inverter control pins collide with timer channels on CH5 and CH6 pads.
@@ -83,7 +88,7 @@
 #define ACC_MPU6000_ALIGN        CW270_DEG
 #elif defined(XRACERF4) || defined(EXUAVF4PRO)
 #define GYRO_MPU6000_ALIGN       CW90_DEG
-#define ACC_MPU6000_ALIGN        CW90_DEG 
+#define ACC_MPU6000_ALIGN        CW90_DEG
 #else
 #define GYRO_MPU6000_ALIGN       CW180_DEG
 #define ACC_MPU6000_ALIGN        CW180_DEG
@@ -103,6 +108,7 @@
 
 #define USE_MAG
 #define USE_MAG_HMC5883
+#define USE_MAG_QMC5883
 #define MAG_HMC5883_ALIGN       CW90_DEG
 
 //#define USE_MAG_NAZA                   // Delete this on next major release
@@ -125,7 +131,6 @@
 #define DEFAULT_BARO_BMP280
 #endif
 
-#define USE_OSD
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI3
 #define MAX7456_SPI_CS_PIN      PA15
@@ -145,9 +150,7 @@
 #define SDCARD_SPI_FULL_SPEED_CLOCK_DIVIDER 4 // 21MHz
 
 #define SDCARD_DMA_CHANNEL_TX                   DMA1_Stream4
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG     DMA_FLAG_TCIF4
-#define SDCARD_DMA_CLK                          RCC_AHB1Periph_DMA1
-#define SDCARD_DMA_CHANNEL                      DMA_Channel_0
+#define SDCARD_DMA_CHANNEL                      0
 #elif defined(LUXF4OSD)
 #define ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT
 #define M25P16_CS_PIN           PB12
@@ -233,6 +236,8 @@
 
 #define USE_ADC
 #define ADC_INSTANCE            ADC2
+//#define ADC_INSTANCE            ADC1
+
 #define CURRENT_METER_ADC_PIN   PC1  // Direct from CRNT pad (part of onboard sensor for Pro)
 #define VBAT_ADC_PIN            PC2  // 11:1 (10K + 1K) divider
 #ifdef DYSF4PRO
@@ -243,7 +248,11 @@
 
 #define USE_TRANSPONDER
 
-#define USE_SONAR
+#define USE_RANGEFINDER
+#define USE_RANGEFINDER_HCSR04
+#define RANGEFINDER_HCSR04_TRIGGER_PIN     PA1
+#define RANGEFINDER_HCSR04_ECHO_PIN        PA8
+#define USE_RANGEFINDER_TF
 
 #define DEFAULT_RX_FEATURE      FEATURE_RX_SERIAL
 
@@ -259,7 +268,7 @@
 #define TARGET_IO_PORTC (0xffff & ~(BIT(15)|BIT(14)|BIT(13)))
 #define TARGET_IO_PORTD BIT(2)
 
-#ifdef OMNIBUSF4SD
+#if defined(OMNIBUSF4SD) || defined(EXUAVF4PRO)
 #define USABLE_TIMER_CHANNEL_COUNT 15
 #define USED_TIMERS ( TIM_N(1) | TIM_N(2) | TIM_N(3) | TIM_N(4) | TIM_N(5) | TIM_N(10) | TIM_N(12) | TIM_N(8) | TIM_N(9))
 #else

@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 #include "platform.h"
 
@@ -31,11 +32,11 @@
 #include "common/utils.h"
 
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
-#include "drivers/gyro_sync.h"
 #include "drivers/light_led.h"
+#include "drivers/sound_beeper.h"
 #include "drivers/system.h"
 #include "drivers/time.h"
 #include "drivers/transponder_ir.h"
@@ -96,7 +97,24 @@ enum {
 
 #define GYRO_WATCHDOG_DELAY 80 //  delay for gyro sync
 
-#define AIRMODE_THOTTLE_THRESHOLD 1350 // Make configurable in the future. ~35% throttle should be fine
+#ifdef USE_RUNAWAY_TAKEOFF
+#define RUNAWAY_TAKEOFF_PIDSUM_THRESHOLD         600   // The pidSum threshold required to trigger - corresponds to a pidSum value of 60% (raw 600) in the blackbox viewer
+#define RUNAWAY_TAKEOFF_ACTIVATE_DELAY           75000 // (75ms) Time in microseconds where pidSum is above threshold to trigger
+#define RUNAWAY_TAKEOFF_DEACTIVATE_STICK_PERCENT 15    // 15% - minimum stick deflection during deactivation phase
+#define RUNAWAY_TAKEOFF_DEACTIVATE_PIDSUM_LIMIT  100   // 10.0% - pidSum limit during deactivation phase
+#define RUNAWAY_TAKEOFF_GYRO_LIMIT_RP            15    // Roll/pitch 15 deg/sec threshold to prevent triggering during bench testing without props
+#define RUNAWAY_TAKEOFF_GYRO_LIMIT_YAW           50    // Yaw 50 deg/sec threshold to prevent triggering during bench testing without props
+#define RUNAWAY_TAKEOFF_HIGH_THROTTLE_PERCENT    75    // High throttle limit to accelerate deactivation (halves the deactivation delay)
+
+#define DEBUG_RUNAWAY_TAKEOFF_ENABLED_STATE      0
+#define DEBUG_RUNAWAY_TAKEOFF_ACTIVATING_DELAY   1
+#define DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_DELAY 2
+#define DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_TIME  3
+
+#define DEBUG_RUNAWAY_TAKEOFF_TRUE  1
+#define DEBUG_RUNAWAY_TAKEOFF_FALSE 0
+#endif
+
 
 #if defined(USE_GPS) || defined(USE_MAG)
 int16_t magHold;
@@ -108,6 +126,15 @@ static uint32_t disarmAt;     // Time of automatic disarm when "Don't spin the m
 
 bool isRXDataNew;
 static int lastArmingDisabledReason = 0;
+
+#ifdef USE_RUNAWAY_TAKEOFF
+static timeUs_t runawayTakeoffDeactivateUs = 0;
+static timeUs_t runawayTakeoffAccumulatedUs = 0;
+static bool runawayTakeoffCheckDisabled = false;
+static timeUs_t runawayTakeoffTriggerUs = 0;
+static bool runawayTakeoffTemporarilyDisabled = false;
+#endif
+
 
 PG_REGISTER_WITH_RESET_TEMPLATE(throttleCorrectionConfig_t, throttleCorrectionConfig, PG_THROTTLE_CORRECTION_CONFIG, 0);
 
@@ -134,7 +161,7 @@ static bool isCalibrating(void)
 
     // Note: compass calibration is handled completely differently, outside of the main loop, see f.CALIBRATE_MAG
 
-    return (!isAccelerationCalibrationComplete() && sensors(SENSOR_ACC)) || (!isGyroCalibrationComplete());
+    return (!accIsCalibrationComplete() && sensors(SENSOR_ACC)) || (!isGyroCalibrationComplete());
 }
 
 void resetArmingDisabled(void)
@@ -216,9 +243,15 @@ void updateArmingStatus(void)
 
           /* Ignore ARMING_DISABLED_THROTTLE (once arm switch is on) if we are in 3D mode */
           bool ignoreThrottle = feature(FEATURE_3D)
-                             && !IS_RC_MODE_ACTIVE(BOX3DDISABLE)
-                             && !isModeActivationConditionPresent(BOX3DONASWITCH)
+                             && !IS_RC_MODE_ACTIVE(BOX3D)
+                             && !flight3DConfig()->switched_mode3d
                              && !(getArmingDisableFlags() & ~(ARMING_DISABLED_ARM_SWITCH | ARMING_DISABLED_THROTTLE));
+
+#ifdef USE_RUNAWAY_TAKEOFF
+           if (!IS_RC_MODE_ACTIVE(BOXARM)) {
+               unsetArmingDisabled(ARMING_DISABLED_RUNAWAY_TAKEOFF);
+           }
+#endif
 
           // If arming is disabled and the ARM switch is on
           if (isArmingDisabled()
@@ -247,12 +280,15 @@ void disarm(void)
         DISABLE_ARMING_FLAG(ARMED);
 
 #ifdef USE_BLACKBOX
-        if (blackboxConfig()->device) {
+        if (blackboxConfig()->device && blackboxConfig()->mode != BLACKBOX_MODE_ALWAYS_ON) { // Close the log upon disarm except when logging mode is ALWAYS ON
             blackboxFinish();
         }
 #endif
         BEEP_OFF;
-        beeper(BEEPER_DISARMING);      // emit disarm tone
+        // if ARMING_DISABLED_RUNAWAY_TAKEOFF is set then we want to play it's beep pattern instead
+        if (!(getArmingDisableFlags() & ARMING_DISABLED_RUNAWAY_TAKEOFF)) {
+            beeper(BEEPER_DISARMING);      // emit disarm tone
+        }
     }
 }
 
@@ -280,6 +316,9 @@ void tryArm(void)
                 }
             } else {
                 flipOverAfterCrashMode = true;
+#ifdef USE_RUNAWAY_TAKEOFF
+                runawayTakeoffCheckDisabled = false;
+#endif
                 if (!feature(FEATURE_3D)) {
                     pwmWriteDshotCommand(ALL_MOTORS, getMotorCount(), DSHOT_CMD_SPIN_DIRECTION_REVERSED);
                 }
@@ -310,6 +349,12 @@ void tryArm(void)
         }
 #else
         beeper(BEEPER_ARMING);
+#endif
+
+#ifdef USE_RUNAWAY_TAKEOFF
+        runawayTakeoffDeactivateUs = 0;
+        runawayTakeoffAccumulatedUs = 0;
+        runawayTakeoffTriggerUs = 0;
 #endif
     } else {
         if (!isFirstArmingGyroCalibrationRunning()) {
@@ -379,25 +424,84 @@ void updateMagHold(void)
 }
 #endif
 
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
 static bool canUpdateVTX(void)
 {
-#ifdef VTX_RTC6705
+#ifdef USE_VTX_RTC6705
     return vtxRTC6705CanUpdate();
 #endif
     return true;
 }
 #endif
 
+#ifdef USE_RUNAWAY_TAKEOFF
+// determine if the R/P/Y stick deflection exceeds the specified limit - integer math is good enough here.
+bool areSticksActive(uint8_t stickPercentLimit)
+{
+    for (int axis = FD_ROLL; axis <= FD_YAW; axis ++) {
+        const uint8_t deadband = axis == FD_YAW ? rcControlsConfig()->yaw_deadband : rcControlsConfig()->deadband;
+        uint8_t stickPercent = 0;
+        if ((rcData[axis] >= PWM_RANGE_MAX) || (rcData[axis] <= PWM_RANGE_MIN)) {
+            stickPercent = 100;
+        } else {
+            if (rcData[axis] > (rxConfig()->midrc + deadband)) {
+                stickPercent = ((rcData[axis] - rxConfig()->midrc - deadband) * 100) / (PWM_RANGE_MAX - rxConfig()->midrc - deadband);
+            } else if (rcData[axis] < (rxConfig()->midrc - deadband)) {
+                stickPercent = ((rxConfig()->midrc - deadband - rcData[axis]) * 100) / (rxConfig()->midrc - deadband - PWM_RANGE_MIN);
+            }
+        }
+        if (stickPercent >= stickPercentLimit) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+// allow temporarily disabling runaway takeoff prevention if we are connected
+// to the configurator and the ARMING_DISABLED_MSP flag is cleared.
+void runawayTakeoffTemporaryDisable(uint8_t disableFlag)
+{
+    runawayTakeoffTemporarilyDisabled = disableFlag;
+}
+#endif
+
+
+// calculate the throttle stick percent - integer math is good enough here.
+uint8_t calculateThrottlePercent(void)
+{
+    uint8_t ret = 0;
+    if (feature(FEATURE_3D)
+        && !IS_RC_MODE_ACTIVE(BOX3D)
+        && !flight3DConfig()->switched_mode3d) {
+
+        if ((rcData[THROTTLE] >= PWM_RANGE_MAX) || (rcData[THROTTLE] <= PWM_RANGE_MIN)) {
+            ret = 100;
+        } else {
+            if (rcData[THROTTLE] > (rxConfig()->midrc + flight3DConfig()->deadband3d_throttle)) {
+                ret = ((rcData[THROTTLE] - rxConfig()->midrc - flight3DConfig()->deadband3d_throttle) * 100) / (PWM_RANGE_MAX - rxConfig()->midrc - flight3DConfig()->deadband3d_throttle);
+            } else if (rcData[THROTTLE] < (rxConfig()->midrc - flight3DConfig()->deadband3d_throttle)) {
+                ret = ((rxConfig()->midrc - flight3DConfig()->deadband3d_throttle - rcData[THROTTLE]) * 100) / (rxConfig()->midrc - flight3DConfig()->deadband3d_throttle - PWM_RANGE_MIN);
+            }
+        }
+    } else {
+        ret = constrain(((rcData[THROTTLE] - rxConfig()->mincheck) * 100) / (PWM_RANGE_MAX - rxConfig()->mincheck), 0, 100);
+    }
+    return ret;
+}
+
+
 /*
  * processRx called from taskUpdateRxMain
  */
-void processRx(timeUs_t currentTimeUs)
+bool processRx(timeUs_t currentTimeUs)
 {
     static bool armedBeeperOn = false;
     static bool airmodeIsActivated;
 
-    calculateRxChannelsAndUpdateFailsafe(currentTimeUs);
+    if (!calculateRxChannelsAndUpdateFailsafe(currentTimeUs)) {
+        return false;
+    }
 
     // in 3D mode, we need to be able to disarm by switch at any time
     if (feature(FEATURE_3D)) {
@@ -413,9 +517,10 @@ void processRx(timeUs_t currentTimeUs)
     failsafeUpdateState();
 
     const throttleStatus_e throttleStatus = calculateThrottleStatus();
+    const uint8_t throttlePercent = calculateThrottlePercent();
 
     if (isAirmodeActive() && ARMING_FLAG(ARMED)) {
-        if (rcData[THROTTLE] >= rxConfig()->airModeActivateThreshold) {
+        if (throttlePercent >= rxConfig()->airModeActivateThreshold) {
             airmodeIsActivated = true; // Prevent Iterm from being reset
         }
     } else {
@@ -433,6 +538,74 @@ void processRx(timeUs_t currentTimeUs)
     } else {
         pidStabilisationState(PID_STABILISATION_ON);
     }
+
+#ifdef USE_RUNAWAY_TAKEOFF
+    // If runaway_takeoff_prevention is enabled, accumulate the amount of time that throttle
+    // is above runaway_takeoff_deactivate_throttle with the any of the R/P/Y sticks deflected
+    // to at least runaway_takeoff_stick_percent percent while the pidSum on all axis is kept low.
+    // Once the amount of accumulated time exceeds runaway_takeoff_deactivate_delay then disable
+    // prevention for the remainder of the battery.
+
+    if (ARMING_FLAG(ARMED)
+        && pidConfig()->runaway_takeoff_prevention
+        && !runawayTakeoffCheckDisabled
+        && !flipOverAfterCrashMode
+        && !runawayTakeoffTemporarilyDisabled
+        && !STATE(FIXED_WING)) {
+
+        // Determine if we're in "flight"
+        //   - motors running
+        //   - throttle over runaway_takeoff_deactivate_throttle_percent
+        //   - sticks are active and have deflection greater than runaway_takeoff_deactivate_stick_percent
+        //   - pidSum on all axis is less then runaway_takeoff_deactivate_pidlimit
+        bool inStableFlight = false;
+        if (!feature(FEATURE_MOTOR_STOP) || isAirmodeActive() || (throttleStatus != THROTTLE_LOW)) { // are motors running?
+            const uint8_t lowThrottleLimit = pidConfig()->runaway_takeoff_deactivate_throttle;
+            const uint8_t midThrottleLimit = constrain(lowThrottleLimit * 2, lowThrottleLimit * 2, RUNAWAY_TAKEOFF_HIGH_THROTTLE_PERCENT);
+            if ((((throttlePercent >= lowThrottleLimit) && areSticksActive(RUNAWAY_TAKEOFF_DEACTIVATE_STICK_PERCENT)) || (throttlePercent >= midThrottleLimit))
+                && (fabsf(axisPIDSum[FD_PITCH]) < RUNAWAY_TAKEOFF_DEACTIVATE_PIDSUM_LIMIT)
+                && (fabsf(axisPIDSum[FD_ROLL]) < RUNAWAY_TAKEOFF_DEACTIVATE_PIDSUM_LIMIT)
+                && (fabsf(axisPIDSum[FD_YAW]) < RUNAWAY_TAKEOFF_DEACTIVATE_PIDSUM_LIMIT)) {
+                
+                inStableFlight = true;
+                if (runawayTakeoffDeactivateUs == 0) {
+                    runawayTakeoffDeactivateUs = currentTimeUs;
+                }
+            }
+        }
+
+        // If we're in flight, then accumulate the time and deactivate once it exceeds runaway_takeoff_deactivate_delay milliseconds
+        if (inStableFlight) {
+            if (runawayTakeoffDeactivateUs == 0) {
+                runawayTakeoffDeactivateUs = currentTimeUs;
+            }
+            uint16_t deactivateDelay = pidConfig()->runaway_takeoff_deactivate_delay;
+            // at high throttle levels reduce deactivation delay by 50%
+            if (throttlePercent >= RUNAWAY_TAKEOFF_HIGH_THROTTLE_PERCENT) {
+                deactivateDelay = deactivateDelay / 2;
+            }
+            if ((cmpTimeUs(currentTimeUs, runawayTakeoffDeactivateUs) + runawayTakeoffAccumulatedUs) > deactivateDelay * 1000) {
+                runawayTakeoffCheckDisabled = true;
+            }
+
+        } else {
+            if (runawayTakeoffDeactivateUs != 0) {
+                runawayTakeoffAccumulatedUs += cmpTimeUs(currentTimeUs, runawayTakeoffDeactivateUs);
+            }
+            runawayTakeoffDeactivateUs = 0;
+        }
+        if (runawayTakeoffDeactivateUs == 0) {
+            DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_DELAY, DEBUG_RUNAWAY_TAKEOFF_FALSE);
+            DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_TIME, runawayTakeoffAccumulatedUs / 1000);
+        } else {
+            DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_DELAY, DEBUG_RUNAWAY_TAKEOFF_TRUE);
+            DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_TIME, (cmpTimeUs(currentTimeUs, runawayTakeoffDeactivateUs) + runawayTakeoffAccumulatedUs) / 1000);
+        }
+    } else {
+        DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_DELAY, DEBUG_RUNAWAY_TAKEOFF_FALSE);
+        DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_DEACTIVATING_TIME, DEBUG_RUNAWAY_TAKEOFF_FALSE);
+    }
+#endif
 
     // When armed and motors aren't spinning, do beeps and then disarm
     // board after delay so users without buzzer won't lose fingers.
@@ -480,7 +653,7 @@ void processRx(timeUs_t currentTimeUs)
         }
     }
 
-    processRcStickPositions(throttleStatus);
+    processRcStickPositions();
 
     if (feature(FEATURE_INFLIGHT_ACC_CAL)) {
         updateInflightCalibrationState();
@@ -526,8 +699,11 @@ void processRx(timeUs_t currentTimeUs)
 
     if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE)) {
         LED1_ON;
+        // increase frequency of attitude task to reduce drift when in angle or horizon mode
+        rescheduleTask(TASK_ATTITUDE, TASK_PERIOD_HZ(500));
     } else {
         LED1_OFF;
+        rescheduleTask(TASK_ATTITUDE, TASK_PERIOD_HZ(100));
     }
 
     if (!IS_RC_MODE_ACTIVE(BOXPREARM) && ARMING_FLAG(WAS_ARMED_WITH_PREARM)) {
@@ -591,13 +767,15 @@ void processRx(timeUs_t currentTimeUs)
     }
 #endif
 
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
     vtxUpdateActivatedChannel();
 
     if (canUpdateVTX()) {
         handleVTXControlButton();
     }
 #endif
+
+    return true;
 }
 
 static void subTaskPidController(timeUs_t currentTimeUs)
@@ -607,6 +785,43 @@ static void subTaskPidController(timeUs_t currentTimeUs)
     // PID - note this is function pointer set by setPIDController()
     pidController(currentPidProfile, &accelerometerConfig()->accelerometerTrims, currentTimeUs);
     DEBUG_SET(DEBUG_PIDLOOP, 1, micros() - startTime);
+
+#ifdef USE_RUNAWAY_TAKEOFF
+    // Check to see if runaway takeoff detection is active (anti-taz), the pidSum is over the threshold,
+    // and gyro rate for any axis is above the limit for at least the activate delay period.
+    // If so, disarm for safety
+    if (ARMING_FLAG(ARMED)
+        && !STATE(FIXED_WING)
+        && pidConfig()->runaway_takeoff_prevention
+        && !runawayTakeoffCheckDisabled
+        && !flipOverAfterCrashMode
+        && !runawayTakeoffTemporarilyDisabled
+        && (!feature(FEATURE_MOTOR_STOP) || isAirmodeActive() || (calculateThrottleStatus() != THROTTLE_LOW))) {
+
+        if (((fabsf(axisPIDSum[FD_PITCH]) >= RUNAWAY_TAKEOFF_PIDSUM_THRESHOLD)
+            || (fabsf(axisPIDSum[FD_ROLL]) >= RUNAWAY_TAKEOFF_PIDSUM_THRESHOLD)
+            || (fabsf(axisPIDSum[FD_YAW]) >= RUNAWAY_TAKEOFF_PIDSUM_THRESHOLD))
+            && ((ABS(gyroAbsRateDps(FD_PITCH)) > RUNAWAY_TAKEOFF_GYRO_LIMIT_RP)
+                || (ABS(gyroAbsRateDps(FD_ROLL)) > RUNAWAY_TAKEOFF_GYRO_LIMIT_RP)
+                || (ABS(gyroAbsRateDps(FD_YAW)) > RUNAWAY_TAKEOFF_GYRO_LIMIT_YAW))) {
+
+            if (runawayTakeoffTriggerUs == 0) {
+                runawayTakeoffTriggerUs = currentTimeUs + RUNAWAY_TAKEOFF_ACTIVATE_DELAY;
+            } else if (currentTimeUs > runawayTakeoffTriggerUs) {
+                setArmingDisabled(ARMING_DISABLED_RUNAWAY_TAKEOFF);
+                disarm();
+            }
+        } else {
+            runawayTakeoffTriggerUs = 0;
+        }
+        DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_ENABLED_STATE, DEBUG_RUNAWAY_TAKEOFF_TRUE);
+        DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_ACTIVATING_DELAY, runawayTakeoffTriggerUs == 0 ? DEBUG_RUNAWAY_TAKEOFF_FALSE : DEBUG_RUNAWAY_TAKEOFF_TRUE);
+    } else {
+        runawayTakeoffTriggerUs = 0;
+        DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_ENABLED_STATE, DEBUG_RUNAWAY_TAKEOFF_FALSE);
+        DEBUG_SET(DEBUG_RUNAWAY_TAKEOFF, DEBUG_RUNAWAY_TAKEOFF_ACTIVATING_DELAY, DEBUG_RUNAWAY_TAKEOFF_FALSE);
+    }
+#endif
 }
 
 static void subTaskMainSubprocesses(timeUs_t currentTimeUs)
@@ -628,8 +843,8 @@ static void subTaskMainSubprocesses(timeUs_t currentTimeUs)
 #if defined(USE_ALT_HOLD)
     // updateRcCommands sets rcCommand, which is needed by updateAltHoldState and updateSonarAltHoldState
     updateRcCommands();
-    if (sensors(SENSOR_BARO) || sensors(SENSOR_SONAR)) {
-        if (FLIGHT_MODE(BARO_MODE) || FLIGHT_MODE(SONAR_MODE)) {
+    if (sensors(SENSOR_BARO) || sensors(SENSOR_RANGEFINDER)) {
+        if (FLIGHT_MODE(BARO_MODE) || FLIGHT_MODE(RANGEFINDER_MODE)) {
             applyAltHold();
         }
     }
@@ -711,19 +926,10 @@ static void subTaskMotorUpdate(timeUs_t currentTimeUs)
     DEBUG_SET(DEBUG_PIDLOOP, 2, micros() - startTime);
 }
 
-uint8_t setPidUpdateCountDown(void)
-{
-    if (gyroConfig()->gyro_soft_lpf_hz) {
-        return pidConfig()->pid_process_denom - 1;
-    } else {
-        return 1;
-    }
-}
-
 // Function for loop trigger
 void taskMainPidLoop(timeUs_t currentTimeUs)
 {
-    static uint8_t pidUpdateCountdown = 0;
+    static uint32_t pidUpdateCounter = 0;
 
 #if defined(SIMULATOR_BUILD) && defined(SIMULATOR_GYROPID_SYNC)
     if (lockMainPID() != 0) return;
@@ -731,16 +937,13 @@ void taskMainPidLoop(timeUs_t currentTimeUs)
 
     // DEBUG_PIDLOOP, timings for:
     // 0 - gyroUpdate()
-    // 1 - pidController()
+    // 1 - subTaskPidController()
     // 2 - subTaskMotorUpdate()
     // 3 - subTaskMainSubprocesses()
     gyroUpdate(currentTimeUs);
     DEBUG_SET(DEBUG_PIDLOOP, 0, micros() - currentTimeUs);
 
-    if (pidUpdateCountdown) {
-        pidUpdateCountdown--;
-    } else {
-        pidUpdateCountdown = setPidUpdateCountDown();
+    if (pidUpdateCounter++ % pidConfig()->pid_process_denom == 0) {
         subTaskPidController(currentTimeUs);
         subTaskMotorUpdate(currentTimeUs);
         subTaskMainSubprocesses(currentTimeUs);

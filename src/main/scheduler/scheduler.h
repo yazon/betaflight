@@ -19,6 +19,11 @@
 
 #include "common/time.h"
 
+#define TASK_PERIOD_HZ(hz) (1000000 / (hz))
+#define TASK_PERIOD_MS(ms) ((ms) * 1000)
+#define TASK_PERIOD_US(us) (us)
+
+
 typedef enum {
     TASK_PRIORITY_IDLE = 0,     // Disables dynamic scheduling, task is executed only if no other task is active this cycle
     TASK_PRIORITY_LOW = 1,
@@ -59,7 +64,7 @@ typedef enum {
     TASK_BATTERY_VOLTAGE,
     TASK_BATTERY_CURRENT,
     TASK_BATTERY_ALERTS,
-#ifdef BEEPER
+#ifdef USE_BEEPER
     TASK_BEEPER,
 #endif
 #ifdef USE_GPS
@@ -71,10 +76,10 @@ typedef enum {
 #ifdef USE_BARO
     TASK_BARO,
 #endif
-#ifdef USE_SONAR
-    TASK_SONAR,
+#ifdef USE_RANGEFINDER
+    TASK_RANGEFINDER,
 #endif
-#if defined(USE_BARO) || defined(USE_SONAR)
+#if defined(USE_BARO) || defined(USE_RANGEFINDER)
     TASK_ALTITUDE,
 #endif
 #ifdef USE_DASHBOARD
@@ -107,7 +112,7 @@ typedef enum {
 #ifdef USE_CMS
     TASK_CMS,
 #endif
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
     TASK_VTXCTRL,
 #endif
 #ifdef USE_CAMERA_CONTROL
@@ -116,6 +121,14 @@ typedef enum {
 
 #ifdef USE_RCDEVICE
     TASK_RCDEVICE,
+#endif
+
+#ifdef USE_ADC_INTERNAL
+    TASK_ADC_INTERNAL,
+#endif
+
+#ifdef USE_PINIOBOX
+    TASK_PINIOBOX,
 #endif
 
     /* Count of real tasks */

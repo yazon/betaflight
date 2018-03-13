@@ -30,7 +30,8 @@
 #define LED0_PIN                PA14 // Red LED
 #define LED1_PIN                PA13 // Green LED
 
-#define BEEPER                  PC1
+#define USE_BEEPER
+#define BEEPER_PIN              PC1
 
 #define INVERTER_PIN_UART1      PB13
 #define INVERTER_PIN_UART6      PB12
@@ -53,6 +54,7 @@
 
 #define USE_MAG
 #define USE_MAG_HMC5883
+#define USE_MAG_QMC5883
 #define MAG_HMC5883_ALIGN       CW180_DEG
 #define MAG_I2C_INSTANCE        I2CDEV_1
 
@@ -68,11 +70,8 @@
 #define SDCARD_SPI_FULL_SPEED_CLOCK_DIVIDER     4 // 21MHz
 
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Stream5
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA_FLAG_TCIF5
-#define SDCARD_DMA_CLK                      RCC_AHB1Periph_DMA1
-#define SDCARD_DMA_CHANNEL                  DMA_Channel_0
+#define SDCARD_DMA_CHANNEL                  0
 
-#define USE_OSD
 #ifdef USE_MSP_DISPLAYPORT
 #undef USE_MSP_DISPLAYPORT
 #endif
@@ -148,8 +147,6 @@
 #define DEFAULT_RX_FEATURE      FEATURE_RX_PPM
 #define RX_CHANNELS_TAER
 #define DEFAULT_FEATURES        (FEATURE_OSD)
-
-#define USE_LED_STRIP
 
 #define USE_SERIAL_4WAY_BLHELI_INTERFACE
 

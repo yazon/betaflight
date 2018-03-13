@@ -35,8 +35,8 @@
 #include "common/utils.h"
 
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 #include "drivers/light_ws2811strip.h"
 #include "drivers/serial.h"
@@ -251,6 +251,7 @@ void reevaluateLedConfig(void)
     updateLedCount();
     updateDimensions();
     updateLedRingCounts();
+    updateRequiredOverlay();
 }
 
 // get specialColor by index
@@ -458,7 +459,7 @@ static void applyLedFixedLayers(void)
             hsvColor_t previousColor = ledStripConfig()->colors[(ledGetColor(ledConfig) - 1 + LED_CONFIGURABLE_COLOR_COUNT) % LED_CONFIGURABLE_COLOR_COUNT];
 
             if (ledGetOverlayBit(ledConfig, LED_OVERLAY_THROTTLE)) {   //smooth fade with selected Aux channel of all HSV values from previousColor through color to nextColor
-            	int centerPWM = (PWM_RANGE_MIN + PWM_RANGE_MAX) / 2;
+                int centerPWM = (PWM_RANGE_MIN + PWM_RANGE_MAX) / 2;
                 if (auxInput < centerPWM) {
                     color.h = scaleRange(auxInput, PWM_RANGE_MIN, centerPWM, previousColor.h, color.h);
                     color.s = scaleRange(auxInput, PWM_RANGE_MIN, centerPWM, previousColor.s, color.s);
@@ -578,7 +579,7 @@ static void applyLedWarningLayer(bool updateNow, timeUs_t *timer)
     }
 }
 
-#ifdef VTX_COMMON
+#ifdef USE_VTX_COMMON
 static void applyLedVtxLayer(bool updateNow, timeUs_t *timer)
 {
     static uint16_t frequency = 0;
@@ -588,7 +589,8 @@ static void applyLedVtxLayer(bool updateNow, timeUs_t *timer)
     static uint16_t lastCheck = 0;
     static bool blink = false;
 
-    if (!vtxCommonDeviceRegistered()) {
+    const vtxDevice_t *vtxDevice = vtxCommonDevice();
+    if (!vtxDevice) {
         return;
     }
 
@@ -597,9 +599,9 @@ static void applyLedVtxLayer(bool updateNow, timeUs_t *timer)
 
     if (updateNow) {
         // keep counter running, so it stays in sync with vtx
-        vtxCommonGetBandAndChannel(&band, &channel);
-        vtxCommonGetPowerIndex(&power);
-        vtxCommonGetPitMode(&pit);
+        vtxCommonGetBandAndChannel(vtxDevice, &band, &channel);
+        vtxCommonGetPowerIndex(vtxDevice, &power);
+        vtxCommonGetPitMode(vtxDevice, &pit);
 
         frequency = vtx58frequencyTable[band - 1][channel - 1]; //subtracting 1 from band and channel so that correct frequency is returned.
                                                                 //might not be correct for tramp but should fix smart audio.
@@ -1000,7 +1002,7 @@ typedef enum {
     timGps,
 #endif
     timWarning,
-#ifdef VTX_COMMON
+#ifdef USE_VTX_COMMON
     timVtx,
 #endif
     timIndicator,
@@ -1012,6 +1014,9 @@ typedef enum {
 } timId_e;
 
 static timeUs_t timerVal[timTimerCount];
+static uint16_t disabledTimerMask;
+
+STATIC_ASSERT(timTimerCount <= sizeof(disabledTimerMask) * 8, disabledTimerMask_too_small);
 
 // function to apply layer.
 // function must replan self using timer pointer
@@ -1029,7 +1034,7 @@ static applyLayerFn_timed* layerTable[] = {
     [timGps] = &applyLedGpsLayer,
 #endif
     [timWarning] = &applyLedWarningLayer,
-#ifdef VTX_COMMON
+#ifdef USE_VTX_COMMON
     [timVtx] = &applyLedVtxLayer,
 #endif
     [timIndicator] = &applyLedIndicatorLayer,
@@ -1038,6 +1043,29 @@ static applyLayerFn_timed* layerTable[] = {
 #endif
     [timRing] = &applyLedThrustRingLayer
 };
+
+bool isOverlayTypeUsed(ledOverlayId_e overlayType)
+{
+    for (int ledIndex = 0; ledIndex < ledCounts.count; ledIndex++) {
+        const ledConfig_t *ledConfig = &ledStripConfig()->ledConfigs[ledIndex];
+        if (ledGetOverlayBit(ledConfig, overlayType)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void updateRequiredOverlay(void)
+{
+    disabledTimerMask = 0;
+    disabledTimerMask |= !isOverlayTypeUsed(LED_OVERLAY_BLINK) << timBlink;
+    disabledTimerMask |= !isOverlayTypeUsed(LED_OVERLAY_LARSON_SCANNER) << timLarson;
+    disabledTimerMask |= !isOverlayTypeUsed(LED_OVERLAY_WARNING) << timWarning;
+#ifdef USE_VTX_COMMON
+    disabledTimerMask |= !isOverlayTypeUsed(LED_OVERLAY_VTX) << timVtx;
+#endif
+    disabledTimerMask |= !isOverlayTypeUsed(LED_OVERLAY_INDICATOR) << timIndicator;
+}
 
 void ledStripUpdate(timeUs_t currentTimeUs)
 {
@@ -1059,14 +1087,16 @@ void ledStripUpdate(timeUs_t currentTimeUs)
     // test all led timers, setting corresponding bits
     uint32_t timActive = 0;
     for (timId_e timId = 0; timId < timTimerCount; timId++) {
-        // sanitize timer value, so that it can be safely incremented. Handles inital timerVal value.
-        const timeDelta_t delta = cmpTimeUs(now, timerVal[timId]);
-        // max delay is limited to 5s
-        if (delta < 0 && delta > -MAX_TIMER_DELAY)
-            continue;  // not ready yet
-        timActive |= 1 << timId;
-        if (delta >= 100 * 1000 || delta < 0) {
-            timerVal[timId] = now;
+        if (!(disabledTimerMask & (1 << timId))) {
+            // sanitize timer value, so that it can be safely incremented. Handles inital timerVal value.
+            const timeDelta_t delta = cmpTimeUs(now, timerVal[timId]);
+            // max delay is limited to 5s
+            if (delta < 0 && delta > -MAX_TIMER_DELAY)
+                continue;  // not ready yet
+            timActive |= 1 << timId;
+            if (delta >= 100 * 1000 || delta < 0) {
+                timerVal[timId] = now;
+            }
         }
     }
 
@@ -1085,7 +1115,7 @@ void ledStripUpdate(timeUs_t currentTimeUs)
         bool updateNow = timActive & (1 << timId);
         (*layerTable[timId])(updateNow, timer);
     }
-    ws2811UpdateStrip();
+    ws2811UpdateStrip((ledStripFormatRGB_e)ledStripConfig()->ledstrip_grb_rgb);
 }
 
 bool parseColor(int index, const char *colorConfig)
@@ -1180,6 +1210,6 @@ static void ledStripDisable(void)
 {
     setStripColor(&HSV(BLACK));
 
-    ws2811UpdateStrip();
+    ws2811UpdateStrip((ledStripFormatRGB_e)ledStripConfig()->ledstrip_grb_rgb);
 }
 #endif

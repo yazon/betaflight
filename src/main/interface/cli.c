@@ -53,12 +53,10 @@ extern uint8_t __config_end;
 
 #include "config/config_eeprom.h"
 #include "config/feature.h"
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
 
 #include "drivers/accgyro/accgyro.h"
+#include "drivers/adc.h"
 #include "drivers/buf_writer.h"
-#include "drivers/bus_i2c.h"
 #include "drivers/bus_spi.h"
 #include "drivers/compass/compass.h"
 #include "drivers/display.h"
@@ -67,18 +65,17 @@ extern uint8_t __config_end;
 #include "drivers/io.h"
 #include "drivers/io_impl.h"
 #include "drivers/inverter.h"
-#include "drivers/rx_pwm.h"
 #include "drivers/sdcard.h"
 #include "drivers/sensor.h"
 #include "drivers/serial.h"
 #include "drivers/serial_escserial.h"
-#include "drivers/sonar_hcsr04.h"
+#include "drivers/rangefinder/rangefinder_hcsr04.h"
+#include "drivers/sound_beeper.h"
 #include "drivers/stack_check.h"
 #include "drivers/system.h"
 #include "drivers/transponder_ir.h"
 #include "drivers/time.h"
 #include "drivers/timer.h"
-#include "drivers/vcd.h"
 #include "drivers/light_led.h"
 #include "drivers/camera_control.h"
 #include "drivers/vtx_common.h"
@@ -116,14 +113,25 @@ extern uint8_t __config_end;
 #include "io/vtx_control.h"
 #include "io/vtx.h"
 
+#include "pg/adc.h"
+#include "pg/beeper.h"
+#include "pg/beeper_dev.h"
+#include "pg/bus_i2c.h"
+#include "pg/bus_spi.h"
+#include "pg/pinio.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
+#include "pg/rx_pwm.h"
+
 #include "rx/rx.h"
 #include "rx/spektrum.h"
-#include "../rx/cc2500_frsky_common.h"
-#include "../rx/cc2500_frsky_x.h"
+#include "rx/cc2500_frsky_common.h"
+#include "rx/cc2500_frsky_x.h"
 
 #include "scheduler/scheduler.h"
 
 #include "sensors/acceleration.h"
+#include "sensors/adcinternal.h"
 #include "sensors/barometer.h"
 #include "sensors/battery.h"
 #include "sensors/boardalignment.h"
@@ -132,7 +140,7 @@ extern uint8_t __config_end;
 #include "sensors/gyro.h"
 #include "sensors/sensors.h"
 
-#include "telemetry/frsky.h"
+#include "telemetry/frsky_hub.h"
 #include "telemetry/telemetry.h"
 
 
@@ -173,7 +181,7 @@ static const char * const mixerNames[] = {
 static const char * const featureNames[] = {
     "RX_PPM", "", "INFLIGHT_ACC_CAL", "RX_SERIAL", "MOTOR_STOP",
     "SERVO_TILT", "SOFTSERIAL", "GPS", "",
-    "SONAR", "TELEMETRY", "", "3D", "RX_PARALLEL_PWM",
+    "RANGEFINDER", "TELEMETRY", "", "3D", "RX_PARALLEL_PWM",
     "RX_MSP", "RSSI_ADC", "LED_STRIP", "DISPLAY", "OSD",
     "", "CHANNEL_FORWARDING", "TRANSPONDER", "AIRMODE",
     "", "", "RX_SPI", "SOFTSPI", "ESC_SENSOR", "ANTI_GRAVITY", "DYNAMIC_FILTER", NULL
@@ -190,15 +198,25 @@ static const rxFailsafeChannelMode_e rxFailsafeModesTable[RX_FAILSAFE_TYPE_COUNT
 #if defined(USE_SENSOR_NAMES)
 // sync this with sensors_e
 static const char * const sensorTypeNames[] = {
-    "GYRO", "ACC", "BARO", "MAG", "SONAR", "GPS", "GPS+MAG", NULL
+    "GYRO", "ACC", "BARO", "MAG", "RANGEFINDER", "GPS", "GPS+MAG", NULL
 };
 
-#define SENSOR_NAMES_MASK (SENSOR_GYRO | SENSOR_ACC | SENSOR_BARO | SENSOR_MAG)
+#define SENSOR_NAMES_MASK (SENSOR_GYRO | SENSOR_ACC | SENSOR_BARO | SENSOR_MAG | SENSOR_RANGEFINDER)
 
 static const char * const *sensorHardwareNames[] = {
-    lookupTableGyroHardware, lookupTableAccHardware, lookupTableBaroHardware, lookupTableMagHardware
+    lookupTableGyroHardware, lookupTableAccHardware, lookupTableBaroHardware, lookupTableMagHardware, lookupTableRangefinderHardware
 };
 #endif // USE_SENSOR_NAMES
+
+static char *cliStringToLowercase(char *str)
+{
+    char *s = str;
+    while (*s) {
+        *s = tolower((unsigned char)*s);
+        s++;
+    }
+    return str;
+}
 
 static void cliPrint(const char *str)
 {
@@ -371,22 +389,30 @@ static void printValuePointer(const clivalue_t *var, const void *valuePointer, b
     }
 }
 
-static bool valuePtrEqualsDefault(uint8_t type, const void *ptr, const void *ptrDefault)
+
+static bool valuePtrEqualsDefault(const clivalue_t *var, const void *ptr, const void *ptrDefault)
 {
-    bool result = false;
-    switch (type & VALUE_TYPE_MASK) {
-    case VAR_UINT8:
-        result = *(uint8_t *)ptr == *(uint8_t *)ptrDefault;
-        break;
+    bool result = true;
+    int elementCount = 1;
 
-    case VAR_INT8:
-        result = *(int8_t *)ptr == *(int8_t *)ptrDefault;
-        break;
+    if ((var->type & VALUE_MODE_MASK) == MODE_ARRAY) {
+        elementCount = var->config.array.length;
+    }
+    for (int i = 0; i < elementCount; i++) {
+        switch (var->type & VALUE_TYPE_MASK) {
+        case VAR_UINT8:
+            result = result && ((uint8_t *)ptr)[i] == ((uint8_t *)ptrDefault)[i];
+            break;
 
-    case VAR_UINT16:
-    case VAR_INT16:
-        result = *(int16_t *)ptr == *(int16_t *)ptrDefault;
-        break;
+        case VAR_INT8:
+            result = result && ((int8_t *)ptr)[i] == ((int8_t *)ptrDefault)[i];
+            break;
+
+        case VAR_UINT16:
+        case VAR_INT16:
+            result = result && ((int16_t *)ptr)[i] == ((int16_t *)ptrDefault)[i];
+            break;
+        }
     }
 
     return result;
@@ -430,7 +456,7 @@ static void dumpPgValue(const clivalue_t *value, uint8_t dumpMask)
     const char *format = "set %s = ";
     const char *defaultFormat = "#set %s = ";
     const int valueOffset = getValueOffset(value);
-    const bool equalsDefault = valuePtrEqualsDefault(value->type, pg->copy + valueOffset, pg->address + valueOffset);
+    const bool equalsDefault = valuePtrEqualsDefault(value, pg->copy + valueOffset, pg->address + valueOffset);
 
     if (((dumpMask & DO_DIFF) == 0) || !equalsDefault) {
         if (dumpMask & SHOW_DEFAULTS && !equalsDefault) {
@@ -1217,7 +1243,7 @@ static void cliRxRange(char *cmdline)
         ptr = cmdline;
         i = atoi(ptr);
         if (i >= 0 && i < NON_AUX_CHANNEL_COUNT) {
-            int rangeMin = 0, rangeMax = 0;
+            int rangeMin = PWM_PULSE_MIN, rangeMax = PWM_PULSE_MAX;
 
             ptr = nextArg(ptr);
             if (ptr) {
@@ -1852,7 +1878,7 @@ static void cliFlashRead(char *cmdline)
 #endif
 #endif
 
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
 static void printVtx(uint8_t dumpMask, const vtxConfig_t *vtxConfig, const vtxConfig_t *vtxConfigDefault)
 {
     // print out vtx channel settings
@@ -2029,8 +2055,8 @@ static void cliFeature(char *cmdline)
                     break;
                 }
 #endif
-#ifndef USE_SONAR
-                if (mask & FEATURE_SONAR) {
+#ifndef USE_RANGEFINDER
+                if (mask & FEATURE_RANGEFINDER) {
                     cliPrintLine("unavailable");
                     break;
                 }
@@ -2049,7 +2075,7 @@ static void cliFeature(char *cmdline)
     }
 }
 
-#ifdef BEEPER
+#ifdef USE_BEEPER
 static void printBeeper(uint8_t dumpMask, const beeperConfig_t *beeperConfig, const beeperConfig_t *beeperConfigDefault)
 {
     const uint8_t beeperCount = beeperTableEntryCount();
@@ -2139,7 +2165,7 @@ void cliFrSkyBind(char *cmdline){
 #ifdef USE_RX_FRSKY_SPI
     case RX_SPI_FRSKY_D:
     case RX_SPI_FRSKY_X:
-        frSkyBind();
+        frSkySpiBind();
 
         cliPrint("Binding...");
 
@@ -2812,7 +2838,7 @@ STATIC_UNIT_TESTED void cliGet(char *cmdline)
     int matchedCommands = 0;
 
     for (uint32_t i = 0; i < valueTableEntryCount; i++) {
-        if (strstr(valueTable[i].name, cmdline)) {
+        if (strstr(valueTable[i].name, cliStringToLowercase(cmdline))) {
             val = &valueTable[i];
             cliPrintf("%s = ", valueTable[i].name);
             cliPrintVar(val, 0);
@@ -2991,7 +3017,7 @@ static void cliStatus(char *cmdline)
     UNUSED(cmdline);
 
     cliPrintLinef("System Uptime: %d seconds", millis() / 1000);
-    
+
     #ifdef USE_RTC_TIME
     char buf[FORMATTED_DATE_TIME_BUFSIZE];
     dateTime_t dt;
@@ -3004,6 +3030,12 @@ static void cliStatus(char *cmdline)
     cliPrintLinef("Voltage: %d * 0.1V (%dS battery - %s)", getBatteryVoltage(), getBatteryCellCount(), getBatteryStateString());
 
     cliPrintf("CPU Clock=%dMHz", (SystemCoreClock / 1000000));
+
+#ifdef USE_ADC_INTERNAL
+    uint16_t vrefintMv = getVrefMv();
+    int16_t coretemp = getCoreTemperatureCelsius();
+    cliPrintf(", Vref=%d.%2dV, Core temp=%ddegC", vrefintMv / 1000, (vrefintMv % 1000) / 10, coretemp);
+#endif
 
 #if defined(USE_SENSOR_NAMES)
     const uint32_t detectedSensorsMask = sensorsMask();
@@ -3050,19 +3082,14 @@ static void cliStatus(char *cmdline)
     const int systemRate = getTaskDeltaTime(TASK_SYSTEM) == 0 ? 0 : (int)(1000000.0f / ((float)getTaskDeltaTime(TASK_SYSTEM)));
     cliPrintLinef("CPU:%d%%, cycle time: %d, GYRO rate: %d, RX rate: %d, System rate: %d",
             constrain(averageSystemLoadPercent, 0, 100), getTaskDeltaTime(TASK_GYROPID), gyroRate, rxRate, systemRate);
-#if defined(USE_OSD) || !defined(MINIMAL_CLI)
-    /* Flag strings are present if OSD is compiled so may as well use them even with MINIMAL_CLI */
     cliPrint("Arming disable flags:");
     armingDisableFlags_e flags = getArmingDisableFlags();
     while (flags) {
-        int bitpos = ffs(flags) - 1;
+        const int bitpos = ffs(flags) - 1;
         flags &= ~(1 << bitpos);
         cliPrintf(" %s", armingDisableFlagNames[bitpos]);
     }
     cliPrintLinefeed();
-#else
-    cliPrintLinef("Arming disable flags: 0x%x", getArmingDisableFlags());
-#endif
 }
 
 #ifndef SKIP_TASK_STATISTICS
@@ -3153,7 +3180,7 @@ typedef struct {
 } cliResourceValue_t;
 
 const cliResourceValue_t resourceTable[] = {
-#ifdef BEEPER
+#ifdef USE_BEEPER
     { OWNER_BEEPER,        PG_BEEPER_DEV_CONFIG, offsetof(beeperDevConfig_t, ioTag), 0 },
 #endif
     { OWNER_MOTOR,         PG_MOTOR_CONFIG, offsetof(motorConfig_t, dev.ioTags[0]), MAX_SUPPORTED_MOTORS },
@@ -3164,7 +3191,7 @@ const cliResourceValue_t resourceTable[] = {
     { OWNER_PPMINPUT,      PG_PPM_CONFIG, offsetof(ppmConfig_t, ioTag), 0 },
     { OWNER_PWMINPUT,      PG_PWM_CONFIG, offsetof(pwmConfig_t, ioTags[0]), PWM_INPUT_PORT_COUNT },
 #endif
-#ifdef USE_SONAR
+#ifdef USE_RANGEFINDER_HCSR04
     { OWNER_SONAR_TRIGGER, PG_SONAR_CONFIG, offsetof(sonarConfig_t, triggerTag), 0 },
     { OWNER_SONAR_ECHO,    PG_SONAR_CONFIG, offsetof(sonarConfig_t, echoTag),    0 },
 #endif
@@ -3210,6 +3237,13 @@ const cliResourceValue_t resourceTable[] = {
 #endif
 #ifdef USE_MAG
     { OWNER_COMPASS_CS,    PG_COMPASS_CONFIG, offsetof(compassConfig_t, mag_spi_csn), 0 },
+#endif
+#ifdef USE_SDCARD
+    { OWNER_SDCARD_CS,     PG_SDCARD_CONFIG, offsetof(sdcardConfig_t, chipSelectTag), 0 },
+    { OWNER_SDCARD_DETECT, PG_SDCARD_CONFIG, offsetof(sdcardConfig_t, cardDetectTag), 0 },
+#endif
+#ifdef USE_PINIO
+    { OWNER_PINIO,         PG_PINIO_CONFIG, offsetof(pinioConfig_t, ioTag), PINIO_COUNT },
 #endif
 };
 
@@ -3302,6 +3336,27 @@ static void resourceCheck(uint8_t resourceIndex, uint8_t index, ioTag_t newTag)
     }
 }
 
+static bool strToPin(char *pch, ioTag_t *tag)
+{
+    if (strcasecmp(pch, "NONE") == 0) {
+        *tag = IO_TAG_NONE;
+        return true;
+    } else {
+        unsigned pin = 0;
+        unsigned port = (*pch >= 'a') ? *pch - 'a' : *pch - 'A';
+
+        if (port < 8) {
+            pch++;
+            pin = atoi(pch);
+            if (pin < 16) {
+                *tag = DEFIO_TAG_MAKE(port, pin);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void cliResource(char *cmdline)
 {
     int len = strlen(cmdline);
@@ -3326,27 +3381,6 @@ static void cliResource(char *cmdline)
                 cliPrintf(" %d", ioRecs[i].index);
             }
             cliPrintLinefeed();
-        }
-
-        cliPrintLinefeed();
-
-#ifdef MINIMAL_CLI
-        cliPrintLine("DMA:");
-#else
-        cliPrintLine("Currently active DMA:");
-        cliRepeat('-', 20);
-#endif
-        for (int i = 0; i < DMA_MAX_DESCRIPTORS; i++) {
-            const char* owner;
-            owner = ownerNames[dmaGetOwner(i)];
-
-            cliPrintf(DMA_OUTPUT_STRING, i / DMA_MOD_VALUE + 1, (i % DMA_MOD_VALUE) + DMA_MOD_OFFSET);
-            uint8_t resourceIndex = dmaGetResourceIndex(i);
-            if (resourceIndex > 0) {
-                cliPrintLinef(" %s %d", owner, resourceIndex);
-            } else {
-                cliPrintLinef(" %s", owner);
-            }
         }
 
 #ifndef MINIMAL_CLI
@@ -3388,45 +3422,63 @@ static void cliResource(char *cmdline)
 
     ioTag_t *tag = getIoTag(resourceTable[resourceIndex], index);
 
-    uint8_t pin = 0;
     if (strlen(pch) > 0) {
-        if (strcasecmp(pch, "NONE") == 0) {
-            *tag = IO_TAG_NONE;
+        if (strToPin(pch, tag)) {
+            if (*tag == IO_TAG_NONE) {
 #ifdef MINIMAL_CLI
-            cliPrintLine("Freed");
+                cliPrintLine("Freed");
 #else
-            cliPrintLine("Resource is freed");
+                cliPrintLine("Resource is freed");
 #endif
-            return;
-        } else {
-            uint8_t port = (*pch) - 'A';
-            if (port >= 8) {
-                port = (*pch) - 'a';
-            }
-
-            if (port < 8) {
-                pch++;
-                pin = atoi(pch);
-                if (pin < 16) {
-                    ioRec_t *rec = IO_Rec(IOGetByTag(DEFIO_TAG_MAKE(port, pin)));
-                    if (rec) {
-                        resourceCheck(resourceIndex, index, DEFIO_TAG_MAKE(port, pin));
+                return;
+            } else {
+                ioRec_t *rec = IO_Rec(IOGetByTag(*tag));
+                if (rec) {
+                    resourceCheck(resourceIndex, index, *tag);
 #ifdef MINIMAL_CLI
-                        cliPrintLinef(" %c%02d set", port + 'A', pin);
+                    cliPrintLinef(" %c%02d set", IO_GPIOPortIdx(rec) + 'A', IO_GPIOPinIdx(rec));
 #else
-                        cliPrintLinef("\r\nResource is set to %c%02d", port + 'A', pin);
+                    cliPrintLinef("\r\nResource is set to %c%02d", IO_GPIOPortIdx(rec) + 'A', IO_GPIOPinIdx(rec));
 #endif
-                        *tag = DEFIO_TAG_MAKE(port, pin);
-                    } else {
-                        cliShowParseError();
-                    }
-                    return;
+                } else {
+                    cliShowParseError();
                 }
+                return;
             }
         }
     }
 
     cliShowParseError();
+}
+
+static void printDma(void)
+{
+    cliPrintLinefeed();
+
+#ifdef MINIMAL_CLI
+    cliPrintLine("DMA:");
+#else
+    cliPrintLine("Currently active DMA:");
+    cliRepeat('-', 20);
+#endif
+    for (int i = 1; i <= DMA_LAST_HANDLER; i++) {
+        const char* owner;
+        owner = ownerNames[dmaGetOwner(i)];
+
+        cliPrintf(DMA_OUTPUT_STRING, DMA_DEVICE_NO(i), DMA_DEVICE_INDEX(i));
+        uint8_t resourceIndex = dmaGetResourceIndex(i);
+        if (resourceIndex > 0) {
+            cliPrintLinef(" %s %d", owner, resourceIndex);
+        } else {
+            cliPrintLinef(" %s", owner);
+        }
+    }
+}
+
+static void cliDma(char* cmdLine)
+{
+    UNUSED(cmdLine);
+    printDma();
 }
 #endif /* USE_RESOURCE_MGMT */
 
@@ -3523,7 +3575,7 @@ static void printConfig(char *cmdline, bool doDiff)
         cliPrintHashLine("feature");
         printFeature(dumpMask, &featureConfig_Copy, featureConfig());
 
-#ifdef BEEPER
+#ifdef USE_BEEPER
         cliPrintHashLine("beeper");
         printBeeper(dumpMask, &beeperConfig_Copy, beeperConfig());
 #endif
@@ -3554,7 +3606,7 @@ static void printConfig(char *cmdline, bool doDiff)
         cliPrintHashLine("rxrange");
         printRxRange(dumpMask, rxChannelRangeConfigs_CopyArray, rxChannelRangeConfigs(0));
 
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
         cliPrintHashLine("vtx");
         printVtx(dumpMask, &vtxConfig_Copy, vtxConfig());
 #endif
@@ -3643,7 +3695,7 @@ static void cliHelp(char *cmdline);
 const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("adjrange", "configure adjustment ranges", NULL, cliAdjustmentRange),
     CLI_COMMAND_DEF("aux", "configure modes", "<index> <mode> <aux> <start> <end> <logic>", cliAux),
-#ifdef BEEPER
+#ifdef USE_BEEPER
     CLI_COMMAND_DEF("beeper", "turn on/off beeper", "list\r\n"
         "\t<+|->[name]", cliBeeper),
 #endif
@@ -3652,8 +3704,7 @@ const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("color", "configure colors", NULL, cliColor),
 #endif
     CLI_COMMAND_DEF("defaults", "reset to defaults and reboot", "[nosave]", cliDefaults),
-    CLI_COMMAND_DEF("diff", "list configuration changes from default",
-        "[master|profile|rates|all] {defaults}", cliDiff),
+    CLI_COMMAND_DEF("diff", "list configuration changes from default", "[master|profile|rates|all] {showdefaults}", cliDiff),
 #ifdef USE_DSHOT
     CLI_COMMAND_DEF("dshotprog", "program DShot ESC(s)", "<index> <command>+", cliDshotProg),
 #endif
@@ -3700,8 +3751,9 @@ const clicmd_t cmdTable[] = {
 #endif
     CLI_COMMAND_DEF("profile", "change profile", "[<index>]", cliProfile),
     CLI_COMMAND_DEF("rateprofile", "change rate profile", "[<index>]", cliRateProfile),
-#if defined(USE_RESOURCE_MGMT)
+#ifdef USE_RESOURCE_MGMT
     CLI_COMMAND_DEF("resource", "show/set resources", NULL, cliResource),
+    CLI_COMMAND_DEF("dma", "list dma utilisation", NULL, cliDma),
 #endif
     CLI_COMMAND_DEF("rxfail", "show/set rx failsafe settings", NULL, cliRxFailsafe),
     CLI_COMMAND_DEF("rxrange", "configure rx channel ranges", NULL, cliRxRange),
@@ -3728,7 +3780,7 @@ const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("tasks", "show task stats", NULL, cliTasks),
 #endif
     CLI_COMMAND_DEF("version", "show version", NULL, cliVersion),
-#ifdef VTX_CONTROL
+#ifdef USE_VTX_CONTROL
     CLI_COMMAND_DEF("vtx", "vtx channels on switch", NULL, cliVtx),
 #endif
 };

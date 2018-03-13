@@ -21,7 +21,7 @@
 
 #include "platform.h"
 
-#ifdef USE_SERIAL_RX
+#if defined(USE_SERIAL_RX) && defined(USE_SERIALRX_XBUS)
 
 #include "common/crc.h"
 
@@ -220,6 +220,7 @@ static void xBusDataReceive(uint16_t c, void *data)
         switch (xBusProvider) {
         case SERIALRX_XBUS_MODE_B:
             xBusUnpackModeBFrame(0);
+            FALLTHROUGH; //!!TODO - check this fall through is correct
         case SERIALRX_XBUS_MODE_B_RJ01:
             xBusUnpackRJ01Frame();
         }

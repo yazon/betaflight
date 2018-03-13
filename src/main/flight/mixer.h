@@ -20,7 +20,7 @@
 #include "platform.h"
 
 #include "common/time.h"
-#include "config/parameter_group.h"
+#include "pg/pg.h"
 #include "drivers/pwm_output_counts.h"
 #include "drivers/io_types.h"
 #include "drivers/pwm_output.h"
@@ -128,3 +128,4 @@ void stopPwmAllMotors(void);
 
 float convertExternalToMotor(uint16_t externalValue);
 uint16_t convertMotorToExternal(float motorValue);
+bool mixerIsTricopter(void);

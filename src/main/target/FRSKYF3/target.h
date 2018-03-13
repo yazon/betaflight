@@ -17,17 +17,13 @@
 
 #pragma once
 
-// no space left
-#undef USE_TELEMETRY_JETIEXBUS
-#undef USE_TELEMETRY_HOTT
-#undef USE_TELEMETRY_LTM
-
 #define TARGET_BOARD_IDENTIFIER "FRF3"
 #define USE_TARGET_CONFIG
 #define CONFIG_FASTLOOP_PREFERRED_ACC ACC_NONE
 
 #define LED0_PIN                PB3
-#define BEEPER                  PC15
+#define USE_BEEPER
+#define BEEPER_PIN              PC15
 #define BEEPER_INVERTED
 
 #define USE_EXTI
@@ -81,7 +77,6 @@
 #define USE_ESCSERIAL
 #define ESCSERIAL_TIMER_TX_PIN  PB9  // (HARDARE=0)
 #define USE_SPI
-#define USE_OSD
 
 // include the max7456 driver
 #define USE_MAX7456

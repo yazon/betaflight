@@ -23,22 +23,31 @@
 
 #include "common/maths.h"
 
-#include "drivers/cc2500.h"
+#include "drivers/rx/rx_cc2500.h"
 #include "drivers/io.h"
 #include "drivers/time.h"
 
 #include "fc/config.h"
 
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 #include "rx/rx.h"
+#include "rx/rx_spi.h"
 
 #include "rx/cc2500_frsky_common.h"
+#include "rx/cc2500_frsky_d.h"
+#include "rx/cc2500_frsky_x.h"
 
 #include "cc2500_frsky_shared.h"
 
 static rx_spi_protocol_e spiProtocol;
+
+static timeMs_t start_time;
+static uint8_t protocolState;
+
+uint32_t missingPackets;
+timeDelta_t timeoutUs;
 
 static uint8_t calData[255][3];
 static timeMs_t timeTunedMs;
@@ -46,20 +55,27 @@ uint8_t listLength;
 static uint8_t bindIdx;
 static int8_t bindOffset;
 static bool lastBindPinStatus;
-bool bindRequested = false;
+
+static bool bindRequested;
+
+typedef uint8_t handlePacketFn(uint8_t * const packet, uint8_t * const protocolState);
+typedef void setRcDataFn(uint16_t *rcData, const uint8_t *payload);
+
+static handlePacketFn *handlePacket;
+static setRcDataFn *setRcData;
 
 IO_t gdoPin;
 static IO_t bindPin = DEFIO_IO(NONE);
-IO_t frSkyLedPin;
+static IO_t frSkyLedPin;
 
 #if defined(USE_RX_FRSKY_SPI_PA_LNA)
 static IO_t txEnPin;
 static IO_t rxLnaEnPin;
-IO_t antSelPin;
+static IO_t antSelPin;
 #endif
 
 #ifdef USE_RX_FRSKY_SPI_TELEMETRY
-int16_t RSSI_dBm;
+int16_t rssiDbm;
 #endif
 
 PG_REGISTER_WITH_RESET_TEMPLATE(rxFrSkySpiConfig_t, rxFrSkySpiConfig, PG_RX_FRSKY_SPI_CONFIG, 0);
@@ -79,33 +95,51 @@ PG_RESET_TEMPLATE(rxFrSkySpiConfig_t, rxFrSkySpiConfig,
 void setRssiDbm(uint8_t value)
 {
     if (value >= 128) {
-        RSSI_dBm = ((((uint16_t)value) * 18) >> 5) - 82;
+        rssiDbm = ((((uint16_t)value) * 18) >> 5) - 82;
     } else {
-        RSSI_dBm = ((((uint16_t)value) * 18) >> 5) + 65;
+        rssiDbm = ((((uint16_t)value) * 18) >> 5) + 65;
     }
 
-    setRssiUnfiltered(constrain(RSSI_dBm << 3, 0, 1023), RSSI_SOURCE_RX_PROTOCOL);
+    setRssiUnfiltered(constrain(rssiDbm << 3, 0, 1023), RSSI_SOURCE_RX_PROTOCOL);
 }
 #endif // USE_RX_FRSKY_SPI_TELEMETRY
 
 #if defined(USE_RX_FRSKY_SPI_PA_LNA)
-void RxEnable(void)
-{
-    IOLo(txEnPin);
-}
-
 void TxEnable(void)
 {
     IOHi(txEnPin);
 }
+
+void TxDisable(void)
+{
+    IOLo(txEnPin);
+}
 #endif
 
-void frSkyBind(void)
+void LedOn(void)
+{
+#if defined(RX_FRSKY_SPI_LED_PIN_INVERTED)
+    IOLo(frSkyLedPin);
+#else
+    IOHi(frSkyLedPin);
+#endif
+}
+
+void LedOff(void)
+{
+#if defined(RX_FRSKY_SPI_LED_PIN_INVERTED)
+    IOHi(frSkyLedPin);
+#else
+    IOLo(frSkyLedPin);
+#endif
+}
+
+void frSkySpiBind(void)
 {
     bindRequested = true;
 }
 
-void initialize() {
+static void initialise() {
     cc2500Reset();
     cc2500WriteReg(CC2500_02_IOCFG0,   0x01);
     cc2500WriteReg(CC2500_17_MCSM1,    0x0C);
@@ -136,7 +170,8 @@ void initialize() {
     cc2500WriteReg(CC2500_03_FIFOTHR,  0x07);
     cc2500WriteReg(CC2500_09_ADDR,     0x00);
 
-    if (spiProtocol == RX_SPI_FRSKY_D) {
+    switch (spiProtocol) {
+    case RX_SPI_FRSKY_D:
         cc2500WriteReg(CC2500_06_PKTLEN,   0x19);
         cc2500WriteReg(CC2500_08_PKTCTRL0, 0x05);
         cc2500WriteReg(CC2500_0B_FSCTRL1,  0x08);
@@ -144,7 +179,9 @@ void initialize() {
         cc2500WriteReg(CC2500_11_MDMCFG3,  0x39);
         cc2500WriteReg(CC2500_12_MDMCFG2,  0x11);
         cc2500WriteReg(CC2500_15_DEVIATN,  0x42);
-    } else {
+
+        break;
+    case RX_SPI_FRSKY_X:
         cc2500WriteReg(CC2500_06_PKTLEN,   0x1E);
         cc2500WriteReg(CC2500_08_PKTCTRL0, 0x01);
         cc2500WriteReg(CC2500_0B_FSCTRL1,  0x0A);
@@ -152,10 +189,15 @@ void initialize() {
         cc2500WriteReg(CC2500_11_MDMCFG3,  0x61);
         cc2500WriteReg(CC2500_12_MDMCFG2,  0x13);
         cc2500WriteReg(CC2500_15_DEVIATN,  0x51);
+
+        break;
+    default:
+
+        break;
     }
 
-    for(uint8_t c=0;c<0xFF;c++)
-    {//calibrate all channels
+    for(unsigned c = 0;c < 0xFF; c++)
+    { //calibrate all channels
         cc2500Strobe(CC2500_SIDLE);
         cc2500WriteReg(CC2500_0A_CHANNR, c);
         cc2500Strobe(CC2500_SCAL);
@@ -342,12 +384,22 @@ bool checkBindRequested(bool reset)
     }
 }
 
-uint8_t handleBinding(uint8_t protocolState, uint8_t *packet)
+rx_spi_received_e frSkySpiDataReceived(uint8_t *packet)
 {
+    rx_spi_received_e ret = RX_SPI_RECEIVED_NONE;
+
     switch (protocolState) {
+    case STATE_INIT:
+        if ((millis() - start_time) > 10) {
+            initialise();
+
+            protocolState = STATE_BIND;
+        }
+
+        break;
     case STATE_BIND:
         if (checkBindRequested(true) || rxFrSkySpiConfig()->autoBind) {
-            IOHi(frSkyLedPin);
+            LedOn();
             initTuneRx();
 
             protocolState = STATE_BIND_TUNING;
@@ -385,19 +437,29 @@ uint8_t handleBinding(uint8_t protocolState, uint8_t *packet)
         } else {
             uint8_t ctr = 40;
             while (ctr--) {
-                IOHi(frSkyLedPin);
+                LedOn();
                 delay(50);
-                IOLo(frSkyLedPin);
+                LedOff();
                 delay(50);
             }
         }
 
+        ret = RX_SPI_RECEIVED_BIND;
         protocolState = STATE_STARTING;
+
+        break;
+    default:
+        ret = handlePacket(packet, &protocolState);
 
         break;
     }
 
-    return protocolState;
+    return ret;
+}
+
+void frSkySpiSetRcData(uint16_t *rcData, const uint8_t *payload)
+{
+    setRcData(rcData, payload);
 }
 
 void nextChannel(uint8_t skip)
@@ -421,9 +483,64 @@ void nextChannel(uint8_t skip)
     }
 }
 
-void frskySpiRxSetup(rx_spi_protocol_e protocol)
+#if defined(USE_RX_FRSKY_SPI_PA_LNA) && defined(USE_RX_FRSKY_SPI_DIVERSITY)
+void switchAntennae(void)
 {
-    spiProtocol = protocol;
+    static bool alternativeAntennaSelected = true;
+
+    if (alternativeAntennaSelected) {
+        IOLo(antSelPin);
+    } else {
+        IOHi(antSelPin);
+    }
+    alternativeAntennaSelected = !alternativeAntennaSelected;
+}
+#endif
+
+static bool frSkySpiDetect(void)
+{
+    const uint8_t chipPartNum = cc2500ReadReg(CC2500_30_PARTNUM | CC2500_READ_BURST); //CC2500 read registers chip part num
+    const uint8_t chipVersion = cc2500ReadReg(CC2500_31_VERSION | CC2500_READ_BURST); //CC2500 read registers chip version
+    if (chipPartNum == 0x80 && chipVersion == 0x03) {
+        return true;
+    }
+
+    return false;
+}
+
+bool frSkySpiInit(const rxConfig_t *rxConfig, rxRuntimeConfig_t *rxRuntimeConfig)
+{
+#if !defined(RX_FRSKY_SPI_DISABLE_CHIP_DETECTION)
+    if (!frSkySpiDetect()) {
+        return false;
+    }
+#else
+    UNUSED(frSkySpiDetect);
+#endif
+
+    spiProtocol = rxConfig->rx_spi_protocol;
+
+    switch (spiProtocol) {
+    case RX_SPI_FRSKY_D:
+        rxRuntimeConfig->channelCount = RC_CHANNEL_COUNT_FRSKY_D;
+
+        handlePacket = frSkyDHandlePacket;
+        setRcData = frSkyDSetRcData;
+        frSkyDInit();
+
+        break;
+    case RX_SPI_FRSKY_X:
+        rxRuntimeConfig->channelCount = RC_CHANNEL_COUNT_FRSKY_X;
+
+        handlePacket = frSkyXHandlePacket;
+        setRcData = frSkyXSetRcData;
+        frSkyXInit();
+
+        break;
+    default:
+
+        break;
+    }
 
 #if defined(USE_RX_FRSKY_SPI_TELEMETRY)
     if (rssiSource == RSSI_SOURCE_NONE) {
@@ -433,22 +550,22 @@ void frskySpiRxSetup(rx_spi_protocol_e protocol)
 
     // gpio init here
     gdoPin = IOGetByTag(IO_TAG(RX_FRSKY_SPI_GDO_0_PIN));
-    IOInit(gdoPin, OWNER_RX_BIND, 0);
+    IOInit(gdoPin, OWNER_RX_SPI, 0);
     IOConfigGPIO(gdoPin, IOCFG_IN_FLOATING);
     frSkyLedPin = IOGetByTag(IO_TAG(RX_FRSKY_SPI_LED_PIN));
     IOInit(frSkyLedPin, OWNER_LED, 0);
     IOConfigGPIO(frSkyLedPin, IOCFG_OUT_PP);
 #if defined(USE_RX_FRSKY_SPI_PA_LNA)
     rxLnaEnPin = IOGetByTag(IO_TAG(RX_FRSKY_SPI_LNA_EN_PIN));
-    IOInit(rxLnaEnPin, OWNER_RX_BIND, 0);
+    IOInit(rxLnaEnPin, OWNER_RX_SPI, 0);
     IOConfigGPIO(rxLnaEnPin, IOCFG_OUT_PP);
     IOHi(rxLnaEnPin); // always on at the moment
     txEnPin = IOGetByTag(IO_TAG(RX_FRSKY_SPI_TX_EN_PIN));
-    IOInit(txEnPin, OWNER_RX_BIND, 0);
+    IOInit(txEnPin, OWNER_RX_SPI, 0);
     IOConfigGPIO(txEnPin, IOCFG_OUT_PP);
 #if defined(USE_RX_FRSKY_SPI_DIVERSITY)
     antSelPin = IOGetByTag(IO_TAG(RX_FRSKY_SPI_ANT_SEL_PIN));
-    IOInit(antSelPin, OWNER_RX_BIND, 0);
+    IOInit(antSelPin, OWNER_RX_SPI, 0);
     IOConfigGPIO(antSelPin, IOCFG_OUT_PP);
 #endif
 #endif // USE_RX_FRSKY_SPI_PA_LNA
@@ -464,10 +581,15 @@ void frskySpiRxSetup(rx_spi_protocol_e protocol)
 #if defined(USE_RX_FRSKY_SPI_DIVERSITY)
     IOHi(antSelPin);
 #endif
-    RxEnable();
+    TxDisable();
 #endif // USE_RX_FRSKY_SPI_PA_LNA
 
-    // if(!frSkySpiDetect())//detect spi working routine
-    // return;
+    missingPackets = 0;
+    timeoutUs = 50;
+
+    start_time = millis();
+    protocolState = STATE_INIT;
+
+    return true;
 }
 #endif

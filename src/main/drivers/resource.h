@@ -68,6 +68,9 @@ typedef enum {
     OWNER_ESCSERIAL,
     OWNER_CAMERA_CONTROL,
     OWNER_TIMUP,
+    OWNER_RANGEFINDER,
+    OWNER_RX_SPI,
+    OWNER_PINIO,
     OWNER_TOTAL_COUNT
 } resourceOwner_e;
 

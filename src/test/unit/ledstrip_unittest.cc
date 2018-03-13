@@ -27,7 +27,7 @@ extern "C" {
     #include "common/axis.h"
     #include "common/color.h"
 
-    #include "config/parameter_group_ids.h"
+    #include "pg/pg_ids.h"
 
     #include "drivers/io.h"
     #include "drivers/light_ws2811strip.h"
@@ -308,7 +308,7 @@ void ws2811LedStripInit(ioTag_t ioTag) {
     UNUSED(ioTag);
 }
 
-void ws2811UpdateStrip(void) {}
+void ws2811UpdateStrip(ledStripFormatRGB_e) {}
 
 void setLedValue(uint16_t index, const uint8_t value) {
     UNUSED(index);

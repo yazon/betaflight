@@ -23,7 +23,8 @@
 
 #define LED0_PIN PD14
 #define LED1_PIN PD15
-#define BEEPER PA0
+#define USE_BEEPER
+#define BEEPER_PIN PA0
 #define BEEPER_INVERTED
 
 #define INVERTER_PIN_UART6 PD7
@@ -76,9 +77,7 @@
 
 /*
 #define SDCARD_DMA_CHANNEL_TX               DMA1_Stream4
-#define SDCARD_DMA_CHANNEL_TX_COMPLETE_FLAG DMA_FLAG_TCIF4
-#define SDCARD_DMA_CLK                      RCC_AHB1Periph_DMA1
-#define SDCARD_DMA_CHANNEL                  DMA_Channel_0
+#define SDCARD_DMA_CHANNEL                  0
 */
 
 

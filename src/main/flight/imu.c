@@ -28,8 +28,8 @@
 
 #include "common/axis.h"
 
-#include "config/parameter_group.h"
-#include "config/parameter_group_ids.h"
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 
 #include "drivers/time.h"
 
@@ -46,7 +46,6 @@
 #include "sensors/compass.h"
 #include "sensors/gyro.h"
 #include "sensors/sensors.h"
-#include "sensors/sonar.h"
 
 #if defined(SIMULATOR_BUILD) && defined(SIMULATOR_MULTITHREAD)
 #include <stdio.h>
@@ -59,7 +58,7 @@ static uint32_t imuDeltaT = 0;
 static bool imuUpdated = false;
 #endif
 
-#define IMU_LOCK pthread_mutex_unlock(&imuUpdateLock)
+#define IMU_LOCK pthread_mutex_lock(&imuUpdateLock)
 #define IMU_UNLOCK pthread_mutex_unlock(&imuUpdateLock)
 
 #else
@@ -181,7 +180,7 @@ void imuResetAccelerationSum(void)
 #if defined(USE_ALT_HOLD)
 static void imuTransformVectorBodyToEarth(t_fp_vector * v)
 {
-    /* From body frame to earth frame */
+    // From body frame to earth frame
     const float x = rMat[0][0] * v->V.X + rMat[0][1] * v->V.Y + rMat[0][2] * v->V.Z;
     const float y = rMat[1][0] * v->V.X + rMat[1][1] * v->V.Y + rMat[1][2] * v->V.Z;
     const float z = rMat[2][0] * v->V.X + rMat[2][1] * v->V.Y + rMat[2][2] * v->V.Z;
@@ -192,7 +191,7 @@ static void imuTransformVectorBodyToEarth(t_fp_vector * v)
 }
 
 // rotate acc into Earth frame and calculate acceleration in it
-static void imuCalculateAcceleration(uint32_t deltaT)
+static void imuCalculateAcceleration(timeDelta_t deltaT)
 {
     static int32_t accZoffset = 0;
     static float accz_smooth = 0;
@@ -201,9 +200,9 @@ static void imuCalculateAcceleration(uint32_t deltaT)
     const float dT = (float)deltaT * 1e-6f;
 
     t_fp_vector accel_ned;
-    accel_ned.V.X = acc.accSmooth[X];
-    accel_ned.V.Y = acc.accSmooth[Y];
-    accel_ned.V.Z = acc.accSmooth[Z];
+    accel_ned.V.X = acc.accADC[X];
+    accel_ned.V.Y = acc.accADC[Y];
+    accel_ned.V.Z = acc.accADC[Z];
 
     imuTransformVectorBodyToEarth(&accel_ned);
 
@@ -261,23 +260,22 @@ static void imuMahonyAHRSupdate(float dt, float gx, float gy, float gz,
     const float spin_rate = sqrtf(sq(gx) + sq(gy) + sq(gz));
 
     // Use raw heading error (from GPS or whatever else)
-    float ez = 0;
+    float ex = 0, ey = 0, ez = 0;
     if (useYaw) {
         while (yawError >  M_PIf) yawError -= (2.0f * M_PIf);
         while (yawError < -M_PIf) yawError += (2.0f * M_PIf);
-
         ez += sin_approx(yawError / 2.0f);
     }
 
+#ifdef USE_MAG
     // Use measured magnetic field vector
-    float ex = 0, ey = 0;
-    float recipNorm = sq(mx) + sq(my) + sq(mz);
-    if (useMag && recipNorm > 0.01f) {
+    float recipMagNorm = sq(mx) + sq(my) + sq(mz);
+    if (useMag && recipMagNorm > 0.01f) {
         // Normalise magnetometer measurement
-        recipNorm = invSqrt(recipNorm);
-        mx *= recipNorm;
-        my *= recipNorm;
-        mz *= recipNorm;
+        recipMagNorm = invSqrt(recipMagNorm);
+        mx *= recipMagNorm;
+        my *= recipMagNorm;
+        mz *= recipMagNorm;
 
         // For magnetometer correction we make an assumption that magnetic field is perpendicular to gravity (ignore Z-component in EF).
         // This way magnetic field will only affect heading and wont mess roll/pitch angles
@@ -296,15 +294,21 @@ static void imuMahonyAHRSupdate(float dt, float gx, float gy, float gz,
         ey += rMat[2][1] * ez_ef;
         ez += rMat[2][2] * ez_ef;
     }
+#else
+    UNUSED(useMag);
+    UNUSED(mx);
+    UNUSED(my);
+    UNUSED(mz);
+#endif
 
     // Use measured acceleration vector
-    recipNorm = sq(ax) + sq(ay) + sq(az);
-    if (useAcc && recipNorm > 0.01f) {
+    float recipAccNorm = sq(ax) + sq(ay) + sq(az);
+    if (useAcc && recipAccNorm > 0.01f) {
         // Normalise accelerometer measurement
-        recipNorm = invSqrt(recipNorm);
-        ax *= recipNorm;
-        ay *= recipNorm;
-        az *= recipNorm;
+        recipAccNorm = invSqrt(recipAccNorm);
+        ax *= recipAccNorm;
+        ay *= recipAccNorm;
+        az *= recipAccNorm;
 
         // Error is sum of cross product between estimated direction and measured direction of gravity
         ex += (ay * rMat[2][2] - az * rMat[2][1]);
@@ -321,8 +325,7 @@ static void imuMahonyAHRSupdate(float dt, float gx, float gy, float gz,
             integralFBy += dcmKiGain * ey * dt;
             integralFBz += dcmKiGain * ez * dt;
         }
-    }
-    else {
+    } else {
         integralFBx = 0.0f;    // prevent integral windup
         integralFBy = 0.0f;
         integralFBz = 0.0f;
@@ -353,7 +356,7 @@ static void imuMahonyAHRSupdate(float dt, float gx, float gy, float gz,
     q.z += (+buffer.w * gz + buffer.x * gy - buffer.y * gx);
 
     // Normalise quaternion
-    recipNorm = invSqrt(sq(q.w) + sq(q.x) + sq(q.y) + sq(q.z));
+    float recipNorm = invSqrt(sq(q.w) + sq(q.x) + sq(q.y) + sq(q.z));
     q.w *= recipNorm;
     q.x *= recipNorm;
     q.y *= recipNorm;
@@ -363,7 +366,8 @@ static void imuMahonyAHRSupdate(float dt, float gx, float gy, float gz,
     imuComputeRotationMatrix();
 }
 
-STATIC_UNIT_TESTED void imuUpdateEulerAngles(void){
+STATIC_UNIT_TESTED void imuUpdateEulerAngles(void)
+{
     quaternionProducts buffer;
 
     if (FLIGHT_MODE(HEADFREE_MODE)) {
@@ -381,7 +385,7 @@ STATIC_UNIT_TESTED void imuUpdateEulerAngles(void){
     if (attitude.values.yaw < 0)
         attitude.values.yaw += 3600;
 
-    /* Update small angle state */
+    // Update small angle state
     if (rMat[2][2] > smallAngleCosZ) {
         ENABLE_STATE(SMALL_ANGLE);
     } else {
@@ -393,7 +397,7 @@ static bool imuIsAccelerometerHealthy(void)
 {
     float accMagnitude = 0;
     for (int axis = 0; axis < 3; axis++) {
-        const float a = acc.accSmooth[axis];
+        const float a = acc.accADC[axis];
         accMagnitude += a * a;
     }
 
@@ -403,31 +407,28 @@ static bool imuIsAccelerometerHealthy(void)
     return (81 < accMagnitude) && (accMagnitude < 121);
 }
 
-static bool isMagnetometerHealthy(void)
-{
-    return (mag.magADC[X] != 0) && (mag.magADC[Y] != 0) && (mag.magADC[Z] != 0);
-}
-
 static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
 {
-    static uint32_t previousIMUUpdateTime;
+    static timeUs_t previousIMUUpdateTime;
     float rawYawError = 0;
     bool useAcc = false;
     bool useMag = false;
     bool useYaw = false;
 
-    uint32_t deltaT = currentTimeUs - previousIMUUpdateTime;
+    const timeDelta_t deltaT = currentTimeUs - previousIMUUpdateTime;
     previousIMUUpdateTime = currentTimeUs;
 
     if (imuIsAccelerometerHealthy()) {
         useAcc = true;
     }
 
-    if (sensors(SENSOR_MAG) && isMagnetometerHealthy()) {
+#ifdef USE_MAG
+    if (sensors(SENSOR_MAG) && compassIsHealthy()) {
         useMag = true;
     }
+#endif
 #if defined(USE_GPS)
-    else if (STATE(FIXED_WING) && sensors(SENSOR_GPS) && STATE(GPS_FIX) && gpsSol.numSat >= 5 && gpsSol.groundSpeed >= 300) {
+    if (!useMag && STATE(FIXED_WING) && sensors(SENSOR_GPS) && STATE(GPS_FIX) && gpsSol.numSat >= 5 && gpsSol.groundSpeed >= 300) {
         // In case of a fixed-wing aircraft we can use GPS course over ground to correct heading
         rawYawError = DECIDEGREES_TO_RADIANS(attitude.values.yaw - gpsSol.groundCourse);
         useYaw = true;
@@ -479,9 +480,9 @@ void imuUpdateAttitude(timeUs_t currentTimeUs)
         imuCalculateEstimatedAttitude(currentTimeUs);
         IMU_UNLOCK;
     } else {
-        acc.accSmooth[X] = 0;
-        acc.accSmooth[Y] = 0;
-        acc.accSmooth[Z] = 0;
+        acc.accADC[X] = 0;
+        acc.accADC[Y] = 0;
+        acc.accADC[Z] = 0;
     }
 }
 
@@ -544,7 +545,8 @@ void imuSetHasNewData(uint32_t dt)
 }
 #endif
 
-void imuQuaternionComputeProducts(quaternion *quat, quaternionProducts *quatProd) {
+void imuQuaternionComputeProducts(quaternion *quat, quaternionProducts *quatProd)
+{
     quatProd->ww = quat->w * quat->w;
     quatProd->wx = quat->w * quat->x;
     quatProd->wy = quat->w * quat->y;
@@ -557,7 +559,8 @@ void imuQuaternionComputeProducts(quaternion *quat, quaternionProducts *quatProd
     quatProd->zz = quat->z * quat->z;
 }
 
-bool imuQuaternionHeadfreeOffsetSet(void) {
+bool imuQuaternionHeadfreeOffsetSet(void)
+{
     if ((ABS(attitude.values.roll) < 450)  && (ABS(attitude.values.pitch) < 450)) {
         const float yaw = -atan2_approx((+2.0f * (qP.wz + qP.xy)), (+1.0f - 2.0f * (qP.yy + qP.zz)));
 
@@ -566,13 +569,14 @@ bool imuQuaternionHeadfreeOffsetSet(void) {
         offset.y = 0;
         offset.z = sin_approx(yaw/2);
 
-        return(true);
+        return true;
     } else {
-        return(false);
+        return false;
     }
 }
 
-void imuQuaternionMultiplication(quaternion *q1, quaternion *q2, quaternion *result) {
+void imuQuaternionMultiplication(quaternion *q1, quaternion *q2, quaternion *result)
+{
     const float A = (q1->w + q1->x) * (q2->w + q2->x);
     const float B = (q1->z - q1->y) * (q2->y - q2->z);
     const float C = (q1->w - q1->x) * (q2->y + q2->z);
@@ -588,7 +592,8 @@ void imuQuaternionMultiplication(quaternion *q1, quaternion *q2, quaternion *res
     result->z = D + (+ E - F - G + H) / 2.0f;
 }
 
-void imuQuaternionHeadfreeTransformVectorEarthToBody(t_fp_vector_def *v) {
+void imuQuaternionHeadfreeTransformVectorEarthToBody(t_fp_vector_def *v)
+{
     quaternionProducts buffer;
 
     imuQuaternionMultiplication(&offset, &q, &headfree);
