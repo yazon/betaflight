@@ -15,7 +15,14 @@
  * along with Cleanflight.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdint.h>
+#include <math.h>
+#include "arm_math.h"
+
 #pragma once
+
+#include "common/axis.h"
+#include "common/lpf_coeffs.h"
 
 // Don't use it on F1 and F3 to lower RAM usage
 // FIR/Denoise filter can be cleaned up in the future as it is rarely used and used to be experimental
@@ -27,6 +34,75 @@
 
 struct filter_s;
 typedef struct filter_s filter_t;
+
+#if (defined(STM32F1) || defined(STM32F3))
+#define USE_FIR_STATIC_FILTER 0
+#else
+#define USE_FIR_STATIC_FILTER 1
+#endif
+
+#if USE_FIR_STATIC_FILTER
+
+#define FIR_STATIC_FILTER_BS						(1)
+
+#define FIR_STATIC_FILTER_FS_1KHZ_VALUE				(1000)
+#define FIR_STATIC_FILTER_FS_2KHZ_VALUE				(2000)
+#define FIR_STATIC_FILTER_FS_4KHZ_VALUE				(4000)
+#define FIR_STATIC_FILTER_FS_8KHZ_VALUE				(8000)
+#define FIR_STATIC_FILTER_FS_16KHZ_VALUE			(16000)
+
+/* Filter delay is 2.5ms */
+#define FIR_STATIC_FILTER_FS_1KHZ_TAPS_SIZE			(6)
+#define FIR_STATIC_FILTER_FS_2KHZ_TAPS_SIZE			(11)
+#define FIR_STATIC_FILTER_FS_4KHZ_TAPS_SIZE			(21)
+#define FIR_STATIC_FILTER_FS_8KHZ_TAPS_SIZE			(41)
+#define FIR_STATIC_FILTER_FS_16KHZ_TAPS_SIZE		(81)
+
+/* Filter delay is 1.5ms */
+#define LPF_GYRO_FILTER_FS_1KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_1KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_2KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_2KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_4KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_4KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_8KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_8KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_16KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_16KHZ_LENGTH)
+#define LPF_GYRO_FILTER_FS_32KHZ_TAPS_SIZE 		(LPF_GYRO_COEFFS_32KHZ_LENGTH)
+
+/* Filter delay is 1ms */
+#define LPF_PID_FILTER_FS_1KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_1KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_2KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_2KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_4KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_4KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_8KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_8KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_16KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_16KHZ_LENGTH)
+#define LPF_PID_FILTER_FS_32KHZ_TAPS_SIZE 		(LPF_PID_COEFFS_32KHZ_LENGTH)
+
+typedef enum {
+	FIR_STATIC_FILTER_FS_1KHZ = 0,
+	FIR_STATIC_FILTER_FS_2KHZ,
+    FIR_STATIC_FILTER_FS_4KHZ,
+    FIR_STATIC_FILTER_FS_8KHZ,
+    FIR_STATIC_FILTER_FS_16KHZ,
+    FIR_STATIC_FILTER_FS_32KHZ,
+    FIR_STATIC_FILTER_FILTER__MAX
+} firStaticFilterFs_e;
+
+typedef struct filterFsToTaps_s {
+	uint16_t fs;
+	uint16_t taps;
+} filterFsToTaps_t;
+
+typedef struct lpfFirStaticFitler_s {
+	float *lpfFirTaps; /* Pointer to LPF FIR filter taps. */
+	float lpfFirState[LPF_GYRO_FILTER_FS_32KHZ_TAPS_SIZE];
+} lpfFirStaticFitler_t;
+
+typedef struct firStaticFilter_s {
+	uint8_t axis;
+	float state;
+	lpfFirStaticFitler_t noiseFilter;
+	filterFsToTaps_t lpfFsTaps;
+	arm_fir_instance_f32 lpf_instance;
+} firStaticFilter_t;
+
+#endif
 
 typedef struct pt1Filter_s {
     float state;
@@ -122,3 +198,10 @@ float firFilterLastInput(const firFilter_t *filter);
 
 void firFilterDenoiseInit(firFilterDenoise_t *filter, uint8_t gyroSoftLpfHz, uint16_t targetLooptime);
 float firFilterDenoiseUpdate(firFilterDenoise_t *filter, float input);
+
+#if USE_FIR_STATIC_FILTER
+
+void firStaticFilterInit(firStaticFilter_t *filter, uint32_t refreshRate, uint8_t axis, uint8_t pidFilter);
+float firStaticFilterApply(firStaticFilter_t *filter, float input);
+
+#endif

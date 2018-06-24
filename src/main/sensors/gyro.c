@@ -100,6 +100,7 @@ typedef union gyroSoftFilter_u {
     biquadFilter_t gyroFilterLpfState[XYZ_AXIS_COUNT];
     pt1Filter_t gyroFilterPt1State[XYZ_AXIS_COUNT];
     firFilterDenoise_t gyroDenoiseState[XYZ_AXIS_COUNT];
+    firStaticFilter_t gyroFilterFirStaticState[XYZ_AXIS_COUNT];
 } gyroSoftLpfFilter_t;
 
 typedef struct gyroSensor_s {
@@ -480,12 +481,14 @@ void gyroInitFilterLpf(gyroSensor_t *gyroSensor, uint8_t lpfHz)
                 pt1FilterInit(&gyroSensor->softLpfFilter.gyroFilterPt1State[axis], lpfHz, gyroDt);
             }
             break;
+        case FILTER_FIR:
+        case FILTER_SLEW:
         default:
-            gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)firFilterDenoiseUpdate;
-            for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
-                gyroSensor->softLpfFilterPtr[axis] = (filter_t *)&gyroSensor->softLpfFilter.gyroDenoiseState[axis];
-                firFilterDenoiseInit(&gyroSensor->softLpfFilter.gyroDenoiseState[axis], lpfHz, gyro.targetLooptime);
-            }
+        	gyroSensor->softLpfFilterApplyFn = (filterApplyFnPtr)firStaticFilterApply;
+        	for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
+        		gyroSensor->softLpfFilterPtr[axis] = (filter_t *)&gyroSensor->softLpfFilter.gyroFilterFirStaticState[axis];
+        		firStaticFilterInit(&gyroSensor->softLpfFilter.gyroFilterFirStaticState[axis], gyro.targetLooptime, axis, 0);
+        	}
             break;
         }
     }
